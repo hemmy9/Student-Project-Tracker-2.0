@@ -1,0 +1,6 @@
+{
+  "name": "Student Project Tracker",
+  "description": "Design and Implementation of a Web-Based Student Project Progress Tracking System — multi-institution academic project supervision and progress management platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
