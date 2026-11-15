@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookText } from 'lucide-react';
+import { BookText, Sparkles } from 'lucide-react';
 import PortalLayout from '../../../components/layout/PortalLayout';
 import Button from '../../../components/ui/Button';
 import EmptyState from '../../../components/ui/EmptyState';
@@ -7,11 +7,13 @@ import FormField from '../../../components/ui/FormField';
 import StatusAlert from '../../../components/ui/StatusAlert';
 import { useDemoAppState } from '../../../context/DemoAppStateContext';
 import { useDemoSession } from '../../../context/DemoSessionContext';
+import { useAiAssistant } from '../../../hooks/useAiAssistant';
 import { getPortalNavItems } from '../../../utils/roleRouting';
 
 export default function StudentJournalsPage() {
   const { activeMembership } = useDemoSession();
   const { state, addWeeklyJournal } = useDemoAppState();
+  const { draftLoading, generateDraft } = useAiAssistant();
 
   const institutionName = activeMembership?.institutionName || 'University of Westbridge';
   const project =
@@ -45,6 +47,29 @@ export default function StudentJournalsPage() {
     setTimeout(() => setSubmittedNotice(false), 3500);
   };
 
+  const handleDraftWithAi = async () => {
+    const draft = await generateDraft({
+      draftType: 'weekly_journal',
+      contextData: {
+        projectTitle: project.title,
+        completedTasks: project.tasks.filter((t) => t.completed).map((t) => t.title),
+        openTasks: project.tasks.filter((t) => !t.completed).map((t) => t.title),
+        activeMilestones: project.milestones.map((m) => ({
+          title: m.title,
+          status: m.status,
+          dueDate: m.dueDate,
+        })),
+        previousJournal: project.journals[0] || null,
+      },
+    });
+    if (draft) {
+      if (draft.primaryText) setSummary(draft.primaryText);
+      if (draft.secondaryText) setBlockers(draft.secondaryText);
+      if (draft.tertiaryText) setNextSteps(draft.tertiaryText);
+      setError('');
+    }
+  };
+
   return (
     <PortalLayout navItems={getPortalNavItems('student')}>
       <div className="space-y-1">
@@ -70,9 +95,21 @@ export default function StudentJournalsPage() {
           onSubmit={handleSubmit}
           className="lg:col-span-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4 self-start"
         >
-          <h2 className="font-display text-lg font-bold text-[#172554]">
-            Log Week {(project.journals[0]?.weekNumber || 0) + 1} Journal
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-bold text-[#172554]">
+              Log Week {(project.journals[0]?.weekNumber || 0) + 1} Journal
+            </h2>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={handleDraftWithAi}
+              disabled={draftLoading}
+            >
+              <Sparkles className="h-3.5 w-3.5 inline mr-1.5 text-[#2563EB]" aria-hidden="true" />
+              {draftLoading ? 'Drafting...' : 'Draft with AI'}
+            </Button>
+          </div>
 
           {error && (
             <StatusAlert type="error" title="Incomplete journal entry">

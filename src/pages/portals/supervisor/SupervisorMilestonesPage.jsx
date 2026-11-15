@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle2, Flag, MessageSquare, Send } from 'lucide-react';
+import { CheckCircle2, Flag, MessageSquare, Send, Sparkles } from 'lucide-react';
 import StatusLabel from '../../../components/dashboard/StatusLabel';
 import PortalLayout from '../../../components/layout/PortalLayout';
 import Button from '../../../components/ui/Button';
@@ -8,6 +8,7 @@ import StatusAlert from '../../../components/ui/StatusAlert';
 import { useDemoAppState } from '../../../context/DemoAppStateContext';
 import { useDemoSession } from '../../../context/DemoSessionContext';
 import { useToast } from '../../../context/ToastContext';
+import { useAiAssistant } from '../../../hooks/useAiAssistant';
 import { getPortalNavItems } from '../../../utils/roleRouting';
 
 const FILTERS = ['All', 'Pending Review', 'Revision Requested', 'In Progress', 'Approved'];
@@ -16,6 +17,7 @@ export default function SupervisorMilestonesPage() {
   const { session, activeMembership } = useDemoSession();
   const { showToast } = useToast();
   const { state, addMilestoneFeedback } = useDemoAppState();
+  const { draftLoading, generateDraft } = useAiAssistant();
 
   const institutionName = activeMembership?.institutionName || 'University of Westbridge';
   const project =
@@ -80,6 +82,28 @@ export default function SupervisorMilestonesPage() {
       title: `Milestone feedback saved`,
       message: `${ms.title} → ${nextStatus}`,
     });
+  };
+
+  const handleDraftFeedback = async (ms) => {
+    const draft = await generateDraft({
+      draftType: 'milestone_feedback',
+      contextData: {
+        studentName: project.studentName,
+        projectTitle: project.title,
+        milestoneTitle: ms.title,
+        phaseNumber: ms.phaseNumber,
+        weightPercent: ms.weightPercent,
+        dueDate: ms.dueDate,
+        currentStatus: ms.status,
+        completedTasks: ms.doneTasks,
+        totalTasks: ms.totalTasks,
+        previousNotes: ms.feedbackEntries.slice(0, 2),
+      },
+    });
+    if (draft?.primaryText) {
+      setCommentDrafts((prev) => ({ ...prev, [ms.id]: draft.primaryText }));
+      setErrorBanner('');
+    }
   };
 
   return (
@@ -262,6 +286,16 @@ export default function SupervisorMilestonesPage() {
                     >
                       <CheckCircle2 className="h-3.5 w-3.5 inline mr-1.5" aria-hidden="true" />
                       Approve phase with feedback
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={draftLoading}
+                      onClick={() => handleDraftFeedback(ms)}
+                    >
+                      <Sparkles className="h-3.5 w-3.5 inline mr-1.5 text-[#2563EB]" aria-hidden="true" />
+                      {draftLoading ? 'Drafting...' : 'Draft feedback with AI'}
                     </Button>
                   </div>
                 </div>

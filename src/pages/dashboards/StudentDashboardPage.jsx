@@ -2,12 +2,15 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, CheckCircle2, User } from 'lucide-react';
 import ActivityFeedStream from '../../components/dashboard/ActivityFeedStream';
+import AiProjectCopilot from '../../components/dashboard/AiProjectCopilot';
 import {
   ActivityCadenceChart,
   BreakdownDonut,
   HorizontalBarChart,
 } from '../../components/dashboard/AnalyticsPanel';
 import DashboardSkeleton from '../../components/dashboard/DashboardSkeleton';
+import OfficeHoursWidget from '../../components/dashboard/OfficeHoursWidget';
+import ProgressTrackerWidget from '../../components/dashboard/ProgressTrackerWidget';
 import SmartDashboardFilters from '../../components/dashboard/SmartDashboardFilters';
 import Stage2Banner from '../../components/dashboard/Stage2Banner';
 import StatCard from '../../components/dashboard/StatCard';
@@ -26,7 +29,7 @@ const MILESTONE_SORTS = [
 ];
 
 export default function StudentDashboardPage() {
-  const { activeMembership } = useDemoSession();
+  const { session, activeMembership } = useDemoSession();
   const { state } = useDemoAppState();
   const [statusFilter, setStatusFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -141,6 +144,37 @@ export default function StudentDashboardPage() {
   const hasActiveMilestoneFilters =
     statusFilter !== 'All' || searchQuery.trim() !== '' || sortBy !== 'due_asc';
 
+  const officeHoursData = state.officeHoursByInstitution?.[institutionName] || {
+    availabilitySlots: [],
+    bookings: [],
+  };
+
+  const aiContextData = useMemo(
+    () => ({
+      projectTitle: project.title,
+      projectCode: project.code,
+      nextDeadline: project.nextDeadline,
+      overallTaskProgressPct: overallProgress,
+      milestones: project.milestones.map((m) => ({
+        phase: m.phaseNumber,
+        title: m.title,
+        status: m.status,
+        dueDate: m.dueDate,
+        weightPercent: m.weightPercent,
+        latestFeedback: m.feedbackEntries?.[0]?.comment || '',
+      })),
+      openTasks: project.tasks
+        .filter((t) => !t.completed)
+        .map((t) => ({ title: t.title, status: t.status, priority: t.priority, dueDate: t.dueDate })),
+      pendingRevisions,
+      recentJournal: project.journals[0] || null,
+      upcomingOfficeHours: officeHoursData.bookings.filter(
+        (b) => b.status === 'Pending' || b.status === 'Confirmed'
+      ),
+    }),
+    [project, overallProgress, pendingRevisions, officeHoursData.bookings]
+  );
+
   return (
     <PortalLayout navItems={getPortalNavItems('student')}>
       <Stage2Banner
@@ -226,6 +260,35 @@ export default function StudentDashboardPage() {
             ))}
           </section>
 
+          {/* Progress Tracker & Weighted Milestones Widget */}
+          <ProgressTrackerWidget
+            milestones={project.milestones}
+            tasks={project.tasks}
+            nextDeadline={project.nextDeadline}
+            managePath="/student/milestones"
+            manageLabel="Manage milestones & feedback"
+            tasksPath="/student/tasks"
+            tasksLabel="Kanban board"
+          />
+
+          {/* Office Hours & AI Project Copilot Overview Row */}
+          <section
+            aria-label="Office hours and AI workspace intelligence"
+            className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+          >
+            <OfficeHoursWidget
+              roleKey="student"
+              institutionName={institutionName}
+              userEmail={session?.email || project.studentEmail}
+              studentName={session?.fullName || project.studentName}
+            />
+            <AiProjectCopilot
+              roleKey="student"
+              institutionName={institutionName}
+              contextData={aiContextData}
+            />
+          </section>
+
           {/* Dashboard Analytics */}
           <section
             aria-label="Student project analytics"
@@ -260,12 +323,20 @@ export default function StudentDashboardPage() {
                 </p>
               </div>
 
-              <Link
-                to="/student/tasks"
-                className="text-xs font-semibold text-[#2563EB] hover:underline whitespace-nowrap"
-              >
-                Manage tasks →
-              </Link>
+              <div className="flex items-center gap-4 text-xs font-semibold">
+                <Link
+                  to="/student/milestones"
+                  className="text-[#2563EB] hover:underline whitespace-nowrap"
+                >
+                  Open milestones →
+                </Link>
+                <Link
+                  to="/student/tasks"
+                  className="text-[#64748B] hover:text-[#172554] whitespace-nowrap"
+                >
+                  Manage tasks →
+                </Link>
+              </div>
             </div>
 
             <SmartDashboardFilters

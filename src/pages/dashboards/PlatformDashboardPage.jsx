@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Shield } from 'lucide-react';
 import ActivityFeedStream from '../../components/dashboard/ActivityFeedStream';
+import AiProjectCopilot from '../../components/dashboard/AiProjectCopilot';
 import { BreakdownDonut, HorizontalBarChart } from '../../components/dashboard/AnalyticsPanel';
 import DashboardSkeleton from '../../components/dashboard/DashboardSkeleton';
 import SmartDashboardFilters from '../../components/dashboard/SmartDashboardFilters';
@@ -96,6 +97,20 @@ export default function PlatformDashboardPage() {
   const hasActiveAppFilters =
     statusFilter !== 'All' || searchQuery.trim() !== '' || sortBy !== 'newest';
 
+  const aiContextData = useMemo(
+    () => ({
+      approvedInstitutions: approvedCount,
+      pendingApplications: pendingCount,
+      suspendedOrRejected: suspendedCount + rejectedCount,
+      totalSeats,
+      pendingList: institutions
+        .filter((i) => i.status === 'Pending Review')
+        .map((i) => ({ name: i.institutionName, domain: i.domain, submittedAt: i.submittedAt })),
+      recentAuditLogs: auditLogs.slice(0, 5),
+    }),
+    [approvedCount, pendingCount, suspendedCount, rejectedCount, totalSeats, institutions, auditLogs]
+  );
+
   return (
     <PortalLayout navItems={getPortalNavItems('platform_admin')}>
       <Stage2Banner
@@ -151,6 +166,14 @@ export default function PlatformDashboardPage() {
               items={seatBars}
             />
           </section>
+
+          <AiProjectCopilot
+            roleKey="platform_admin"
+            institutionName="Platform-Wide Governance"
+            contextData={aiContextData}
+            title="AI Platform Governance Copilot"
+            subtitle="Domain verification triage, tenant health overview, and audit summary powered by Gemini."
+          />
 
           {/* Institution Applications & Directory */}
           <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5">

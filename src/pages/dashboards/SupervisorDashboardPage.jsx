@@ -2,8 +2,11 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, FileCheck2 } from 'lucide-react';
 import ActivityFeedStream from '../../components/dashboard/ActivityFeedStream';
+import AiProjectCopilot from '../../components/dashboard/AiProjectCopilot';
 import { BreakdownDonut, HorizontalBarChart } from '../../components/dashboard/AnalyticsPanel';
 import DashboardSkeleton from '../../components/dashboard/DashboardSkeleton';
+import OfficeHoursWidget from '../../components/dashboard/OfficeHoursWidget';
+import ProgressTrackerWidget from '../../components/dashboard/ProgressTrackerWidget';
 import SmartDashboardFilters from '../../components/dashboard/SmartDashboardFilters';
 import Stage2Banner from '../../components/dashboard/Stage2Banner';
 import StatCard from '../../components/dashboard/StatCard';
@@ -134,6 +137,32 @@ export default function SupervisorDashboardPage() {
   const hasActiveCohortFilters =
     statusFilter !== 'All' || searchQuery.trim() !== '' || sortBy !== 'progress_asc';
 
+  const officeHoursData = state.officeHoursByInstitution?.[institutionName] || {
+    availabilitySlots: [],
+    bookings: [],
+  };
+
+  const aiContextData = useMemo(
+    () => ({
+      institutionName,
+      assignedStudents: assignedStudents.map((s) => ({
+        name: s.name,
+        progress: s.progress,
+        status: s.attentionStatus,
+        pendingItem: s.pendingItem,
+        lastJournal: s.lastJournal,
+      })),
+      pendingDocumentReviews: reviewQueue.filter((r) => r.status === 'Pending Review'),
+      primaryProjectMilestones: primaryProj.milestones.map((m) => ({
+        title: m.title,
+        status: m.status,
+        dueDate: m.dueDate,
+      })),
+      officeHourBookings: officeHoursData.bookings,
+    }),
+    [institutionName, assignedStudents, reviewQueue, primaryProj.milestones, officeHoursData.bookings]
+  );
+
   return (
     <PortalLayout navItems={getPortalNavItems('supervisor')}>
       <Stage2Banner
@@ -168,6 +197,34 @@ export default function SupervisorDashboardPage() {
                 hint={metric.hint}
               />
             ))}
+          </section>
+
+          {/* Primary Supervised Project Milestones Tracker */}
+          <ProgressTrackerWidget
+            title={`Milestones Progress — ${primaryProj.studentName}`}
+            subtitle="Track student-defined phases, weighted progress, and supervisor sign-off status."
+            milestones={primaryProj.milestones}
+            tasks={primaryProj.tasks}
+            nextDeadline={primaryProj.nextDeadline}
+            managePath="/supervisor/milestones"
+            manageLabel="Review & post milestone feedback"
+            tasksPath="/supervisor/reviews"
+            tasksLabel="Document reviews"
+          />
+
+          {/* Office Hours & AI Supervision Copilot */}
+          <section
+            aria-label="Supervisor office hours and AI briefing"
+            className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+          >
+            <OfficeHoursWidget roleKey="supervisor" institutionName={institutionName} />
+            <AiProjectCopilot
+              roleKey="supervisor"
+              institutionName={institutionName}
+              contextData={aiContextData}
+              title="AI Supervision Copilot"
+              subtitle="Cohort risk triage, review queue prioritization, and consultation prep powered by Gemini."
+            />
           </section>
 
           <section

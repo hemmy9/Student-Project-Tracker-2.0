@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Users } from 'lucide-react';
 import ActivityFeedStream from '../../components/dashboard/ActivityFeedStream';
+import AiProjectCopilot from '../../components/dashboard/AiProjectCopilot';
 import { BreakdownDonut, HorizontalBarChart } from '../../components/dashboard/AnalyticsPanel';
 import DashboardSkeleton from '../../components/dashboard/DashboardSkeleton';
 import SmartDashboardFilters from '../../components/dashboard/SmartDashboardFilters';
@@ -96,6 +97,22 @@ export default function InstitutionDashboardPage() {
   const hasActiveRequestFilters =
     roleFilter !== 'All' || searchQuery.trim() !== '' || sortBy !== 'newest';
 
+  const aiContextData = useMemo(
+    () => ({
+      institution: inst.info.name,
+      activeSession,
+      pendingApprovalsCount: pendingRequests.length,
+      unassignedProjects,
+      assignedProjects,
+      departments: inst.departments.map((d) => ({
+        name: d.name,
+        students: d.students,
+        supervisors: d.supervisors,
+      })),
+    }),
+    [inst.info.name, activeSession, pendingRequests.length, unassignedProjects, assignedProjects, inst.departments]
+  );
+
   return (
     <PortalLayout navItems={getPortalNavItems('institution_admin')}>
       <Stage2Banner
@@ -151,6 +168,14 @@ export default function InstitutionDashboardPage() {
               items={departmentLoadBars}
             />
           </section>
+
+          <AiProjectCopilot
+            roleKey="institution_admin"
+            institutionName={inst.info.name}
+            contextData={aiContextData}
+            title="AI Institutional Operations Copilot"
+            subtitle="Analyze supervisor allocation gaps, departmental workload, and verification bottlenecks."
+          />
 
           {/* Membership Requests */}
           <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5">
