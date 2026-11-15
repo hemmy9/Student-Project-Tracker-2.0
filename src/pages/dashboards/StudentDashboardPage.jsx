@@ -11,12 +11,14 @@ import {
 import DashboardSkeleton from '../../components/dashboard/DashboardSkeleton';
 import OfficeHoursWidget from '../../components/dashboard/OfficeHoursWidget';
 import ProgressTrackerWidget from '../../components/dashboard/ProgressTrackerWidget';
+import ProjectStatsWidget from '../../components/dashboard/ProjectStatsWidget';
 import SmartDashboardFilters from '../../components/dashboard/SmartDashboardFilters';
 import Stage2Banner from '../../components/dashboard/Stage2Banner';
 import StatCard from '../../components/dashboard/StatCard';
 import StatusLabel from '../../components/dashboard/StatusLabel';
 import PortalLayout from '../../components/layout/PortalLayout';
 import EmptyState from '../../components/ui/EmptyState';
+import { WidgetErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { useDemoAppState } from '../../context/DemoAppStateContext';
 import { useDemoSession } from '../../context/DemoSessionContext';
 import { getPortalNavItems } from '../../utils/roleRouting';
@@ -177,255 +179,287 @@ export default function StudentDashboardPage() {
 
   return (
     <PortalLayout navItems={getPortalNavItems('student')}>
-      <Stage2Banner
-        portalName="Student Portal"
-        tenantLabel={institutionName}
-        loadingPreview={loadingPreview}
-        onToggleLoadingPreview={setLoadingPreview}
-      />
+      <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-12">
+          <Stage2Banner
+            portalName="Student Portal"
+            tenantLabel={institutionName}
+            loadingPreview={loadingPreview}
+            onToggleLoadingPreview={setLoadingPreview}
+          />
+        </div>
 
-      {loadingPreview ? (
-        <DashboardSkeleton variant="full" />
-      ) : (
-        <>
-          {/* Assigned Academic Project Overview */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7 space-y-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="space-y-1.5">
-                <p className="font-mono text-xs font-medium text-[#2563EB] tabular-nums">
-                  {project.code} · {project.academicSession}
-                </p>
-                <h1 className="font-display text-xl sm:text-2xl font-bold text-[#172554] leading-snug text-balance">
-                  {project.title}
-                </h1>
-                <p className="text-xs sm:text-sm text-[#64748B]">
-                  {project.department} · {project.programme}
-                </p>
+        {loadingPreview ? (
+          <div className="lg:col-span-12">
+            <DashboardSkeleton variant="full" />
+          </div>
+        ) : (
+          <>
+            {/* Assigned Academic Project Overview */}
+            <section className="lg:col-span-12 rounded-2xl border border-slate-200 bg-white p-5 sm:p-7 space-y-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1.5">
+                  <p className="font-mono text-xs font-medium text-[#2563EB] tabular-nums">
+                    {project.code} · {project.academicSession}
+                  </p>
+                  <h1 className="font-display text-xl sm:text-2xl font-bold text-[#172554] leading-snug text-balance">
+                    {project.title}
+                  </h1>
+                  <p className="text-xs sm:text-sm text-[#64748B]">
+                    {project.department} · {project.programme}
+                  </p>
+                </div>
+                <div className="shrink-0 sm:text-right">
+                  <p className="text-xs text-[#64748B]">Task Completion</p>
+                  <p className="font-display text-2xl font-bold text-[#172554] tabular-nums">
+                    {overallProgress}%
+                  </p>
+                </div>
               </div>
-              <div className="shrink-0 sm:text-right">
-                <p className="text-xs text-[#64748B]">Task Completion</p>
-                <p className="font-display text-2xl font-bold text-[#172554] tabular-nums">
-                  {overallProgress}%
-                </p>
-              </div>
-            </div>
 
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-[#2563EB] transition-all duration-300"
-                style={{ width: `${overallProgress}%` }}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 text-xs sm:grid-cols-2 sm:text-sm">
-              <div className="flex items-center gap-2 text-[#64748B]">
-                <User className="h-4 w-4 text-[#2563EB] shrink-0" aria-hidden="true" />
-                <span>
-                  Supervisor: <strong className="text-[#172554]">{project.supervisorName}</strong>
-                </span>
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-[#2563EB] transition-all duration-300"
+                  style={{ width: `${overallProgress}%` }}
+                />
               </div>
-              <div className="flex items-center gap-2 text-[#64748B] sm:justify-end">
-                <Calendar className="h-4 w-4 text-[#2563EB] shrink-0" aria-hidden="true" />
-                <span className="tabular-nums">
-                  Next deadline: <strong className="text-[#172554]">{project.nextDeadline}</strong>{' '}
-                  <span className="text-xs text-[#2563EB] font-semibold">
-                    (
-                    {Math.max(
-                      0,
-                      Math.ceil(
-                        (new Date(project.nextDeadline).getTime() -
-                          new Date('2026-11-14').getTime()) /
-                          (1000 * 60 * 60 * 24)
-                      )
-                    )}{' '}
-                    days left)
+
+              <div className="grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 text-xs sm:grid-cols-2 sm:text-sm">
+                <div className="flex items-center gap-2 text-[#64748B]">
+                  <User className="h-4 w-4 text-[#2563EB] shrink-0" aria-hidden="true" />
+                  <span>
+                    Supervisor: <strong className="text-[#172554]">{project.supervisorName}</strong>
                   </span>
-                </span>
+                </div>
+                <div className="flex items-center gap-2 text-[#64748B] sm:justify-end">
+                  <Calendar className="h-4 w-4 text-[#2563EB] shrink-0" aria-hidden="true" />
+                  <span className="tabular-nums">
+                    Next deadline: <strong className="text-[#172554]">{project.nextDeadline}</strong>{' '}
+                    <span className="text-xs text-[#2563EB] font-semibold">
+                      (
+                      {Math.max(
+                        0,
+                        Math.ceil(
+                          (new Date(project.nextDeadline).getTime() -
+                            new Date('2026-11-14').getTime()) /
+                            (1000 * 60 * 60 * 24)
+                        )
+                      )}{' '}
+                      days left)
+                    </span>
+                  </span>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          {/* 4 KPI Summary Cards */}
-          <section
-            aria-label="Project progress metrics"
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
-          >
-            {metrics.map((metric) => (
-              <StatCard
-                key={metric.label}
-                label={metric.label}
-                value={metric.value}
-                hint={metric.hint}
-              />
-            ))}
-          </section>
+            {/* 4 KPI Summary Cards (12-column full width) */}
+            <section
+              aria-label="Project progress metrics"
+              className="lg:col-span-12 grid grid-cols-1 gap-4 sm:grid-cols-6 lg:grid-cols-12"
+            >
+              {metrics.map((metric) => (
+                <div key={metric.label} className="sm:col-span-3 lg:col-span-3">
+                  <StatCard label={metric.label} value={metric.value} hint={metric.hint} />
+                </div>
+              ))}
+            </section>
 
-          {/* Progress Tracker & Weighted Milestones Widget */}
-          <ProgressTrackerWidget
-            milestones={project.milestones}
-            tasks={project.tasks}
-            nextDeadline={project.nextDeadline}
-            managePath="/student/milestones"
-            manageLabel="Manage milestones & feedback"
-            tasksPath="/student/tasks"
-            tasksLabel="Kanban board"
-          />
-
-          {/* Office Hours & AI Project Copilot Overview Row */}
-          <section
-            aria-label="Office hours and AI workspace intelligence"
-            className="grid grid-cols-1 gap-4 lg:grid-cols-2"
-          >
-            <OfficeHoursWidget
-              roleKey="student"
-              institutionName={institutionName}
-              userEmail={session?.email || project.studentEmail}
-              studentName={session?.fullName || project.studentName}
-            />
-            <AiProjectCopilot
-              roleKey="student"
-              institutionName={institutionName}
-              contextData={aiContextData}
-            />
-          </section>
-
-          {/* Dashboard Analytics */}
-          <section
-            aria-label="Student project analytics"
-            className="grid grid-cols-1 gap-4 lg:grid-cols-3"
-          >
-            <BreakdownDonut
-              title="Task Status Breakdown"
-              subtitle="Completed vs. open and overdue tasks"
-              segments={taskSegments}
-            />
-            <HorizontalBarChart
-              title="Milestone Progress"
-              subtitle="Completion across project stages"
-              items={milestoneBars}
-            />
-            <ActivityCadenceChart
-              title="Weekly Research Activity"
-              subtitle="Journals & chapter submissions logged"
-              bars={cadenceBars}
-            />
-          </section>
-
-          {/* Milestones & Progress Breakdown */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="font-display text-lg font-bold text-[#172554]">
-                  Project Milestones
-                </h2>
-                <p className="text-xs text-[#64748B]">
-                  Track deliverables, due dates, and supervisor sign-off status.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-4 text-xs font-semibold">
-                <Link
-                  to="/student/milestones"
-                  className="text-[#2563EB] hover:underline whitespace-nowrap"
-                >
-                  Open milestones →
-                </Link>
-                <Link
-                  to="/student/tasks"
-                  className="text-[#64748B] hover:text-[#172554] whitespace-nowrap"
-                >
-                  Manage tasks →
-                </Link>
-              </div>
+            {/* Project Stats Widget */}
+            <div className="lg:col-span-12">
+              <WidgetErrorBoundary title="Project Stats temporarily unavailable">
+                <ProjectStatsWidget
+                  mode="student"
+                  project={project}
+                  officeHoursData={officeHoursData}
+                />
+              </WidgetErrorBoundary>
             </div>
 
-            <SmartDashboardFilters
-              searchValue={searchQuery}
-              onSearchChange={setSearchQuery}
-              searchPlaceholder="Search milestones or due dates..."
-              filterOptions={MILESTONE_FILTERS}
-              activeFilter={statusFilter}
-              onFilterChange={setStatusFilter}
-              sortOptions={MILESTONE_SORTS}
-              activeSort={sortBy}
-              onSortChange={setSortBy}
-              summaryText={`Showing ${filteredMilestones.length} of ${milestonesWithTaskCounts.length} milestones`}
-              hasActiveFilters={hasActiveMilestoneFilters}
-              onReset={() => {
-                setStatusFilter('All');
-                setSearchQuery('');
-                setSortBy('due_asc');
-              }}
-            />
+            {/* Side-by-Side Full Width on Desktop (>=1024px): Progress & Milestones Tracker + Supervisor Office Hours */}
+            <div className="lg:col-span-7">
+              <WidgetErrorBoundary title="Progress Tracker temporarily unavailable">
+                <ProgressTrackerWidget
+                  milestones={project.milestones}
+                  tasks={project.tasks}
+                  nextDeadline={project.nextDeadline}
+                  managePath="/student/milestones"
+                  manageLabel="Manage milestones & feedback"
+                  tasksPath="/student/tasks"
+                  tasksLabel="Kanban board"
+                  compactPhaseGrid
+                />
+              </WidgetErrorBoundary>
+            </div>
 
-            {filteredMilestones.length === 0 ? (
-              <EmptyState
-                icon={CheckCircle2}
-                title={`No milestones marked "${statusFilter}"`}
-                description="Switch back to All milestones to view your complete project schedule."
-                actionLabel="Show all milestones"
-                onAction={() => setStatusFilter('All')}
-              />
-            ) : (
-              <>
-                <div className="divide-y divide-slate-100 md:hidden">
-                  {filteredMilestones.map((ms) => (
-                    <div key={ms.id} className="py-3.5 first:pt-0 last:pb-0 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold text-[#172554] leading-snug">
-                          {ms.title}
-                        </p>
-                        <StatusLabel status={ms.status} />
-                      </div>
-                      <div className="flex items-center justify-between text-xs text-[#64748B] tabular-nums">
-                        <span>Due {ms.dueDate}</span>
-                        <span>
-                          Tasks: {ms.tasksDone}/{ms.tasksTotal}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+            <div className="lg:col-span-5">
+              <WidgetErrorBoundary title="Office Hours temporarily unavailable">
+                <OfficeHoursWidget
+                  roleKey="student"
+                  institutionName={institutionName}
+                  userEmail={session?.email || project.studentEmail}
+                  studentName={session?.fullName || project.studentName}
+                />
+              </WidgetErrorBoundary>
+            </div>
+
+            {/* Dashboard Analytics (12-column full width) */}
+            <section
+              aria-label="Student project analytics"
+              className="lg:col-span-12 grid grid-cols-1 gap-4 lg:grid-cols-12"
+            >
+              <div className="lg:col-span-4">
+                <BreakdownDonut
+                  title="Task Status Breakdown"
+                  subtitle="Completed vs. open and overdue tasks"
+                  segments={taskSegments}
+                />
+              </div>
+              <div className="lg:col-span-4">
+                <HorizontalBarChart
+                  title="Milestone Progress"
+                  subtitle="Completion across project stages"
+                  items={milestoneBars}
+                />
+              </div>
+              <div className="lg:col-span-4">
+                <ActivityCadenceChart
+                  title="Weekly Research Activity"
+                  subtitle="Journals & chapter submissions logged"
+                  bars={cadenceBars}
+                />
+              </div>
+            </section>
+
+            {/* Milestones & Progress Breakdown (12-column full width) */}
+            <section className="lg:col-span-12 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="font-display text-lg font-bold text-[#172554]">
+                    Project Milestones
+                  </h2>
+                  <p className="text-xs text-[#64748B]">
+                    Track deliverables, due dates, and supervisor sign-off status.
+                  </p>
                 </div>
 
-                <div className="hidden md:block overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-xs font-semibold text-[#64748B]">
-                        <th className="py-2.5 pr-4">Milestone</th>
-                        <th className="py-2.5 px-4">Due Date</th>
-                        <th className="py-2.5 px-4 text-right">Tasks</th>
-                        <th className="py-2.5 pl-4 text-right">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredMilestones.map((ms) => (
-                        <tr key={ms.id} className="hover:bg-slate-50/70">
-                          <td className="py-3 pr-4 font-medium text-[#172554]">{ms.title}</td>
-                          <td className="py-3 px-4 font-mono text-xs text-[#64748B] tabular-nums">
-                            {ms.dueDate}
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono text-xs text-[#172554] tabular-nums">
-                            {ms.tasksDone} / {ms.tasksTotal}
-                          </td>
-                          <td className="py-3 pl-4 text-right">
-                            <StatusLabel status={ms.status} />
-                          </td>
+                <div className="flex items-center gap-4 text-xs font-semibold">
+                  <Link
+                    to="/student/milestones"
+                    className="text-[#2563EB] hover:underline whitespace-nowrap"
+                  >
+                    Open milestones →
+                  </Link>
+                  <Link
+                    to="/student/tasks"
+                    className="text-[#64748B] hover:text-[#172554] whitespace-nowrap"
+                  >
+                    Manage tasks →
+                  </Link>
+                </div>
+              </div>
+
+              <SmartDashboardFilters
+                searchValue={searchQuery}
+                onSearchChange={setSearchQuery}
+                searchPlaceholder="Search milestones or due dates..."
+                filterOptions={MILESTONE_FILTERS}
+                activeFilter={statusFilter}
+                onFilterChange={setStatusFilter}
+                sortOptions={MILESTONE_SORTS}
+                activeSort={sortBy}
+                onSortChange={setSortBy}
+                summaryText={`Showing ${filteredMilestones.length} of ${milestonesWithTaskCounts.length} milestones`}
+                hasActiveFilters={hasActiveMilestoneFilters}
+                onReset={() => {
+                  setStatusFilter('All');
+                  setSearchQuery('');
+                  setSortBy('due_asc');
+                }}
+              />
+
+              {filteredMilestones.length === 0 ? (
+                <EmptyState
+                  icon={CheckCircle2}
+                  title={`No milestones marked "${statusFilter}"`}
+                  description="Switch back to All milestones to view your complete project schedule."
+                  actionLabel="Show all milestones"
+                  onAction={() => setStatusFilter('All')}
+                />
+              ) : (
+                <>
+                  <div className="divide-y divide-slate-100 md:hidden">
+                    {filteredMilestones.map((ms) => (
+                      <div key={ms.id} className="py-3.5 first:pt-0 last:pb-0 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-semibold text-[#172554] leading-snug">
+                            {ms.title}
+                          </p>
+                          <StatusLabel status={ms.status} />
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-[#64748B] tabular-nums">
+                          <span>Due {ms.dueDate}</span>
+                          <span>
+                            Tasks: {ms.tasksDone}/{ms.tasksTotal}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-xs font-semibold text-[#64748B]">
+                          <th className="py-2.5 pr-4">Milestone</th>
+                          <th className="py-2.5 px-4">Due Date</th>
+                          <th className="py-2.5 px-4 text-right">Tasks</th>
+                          <th className="py-2.5 pl-4 text-right">Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </section>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredMilestones.map((ms) => (
+                          <tr key={ms.id} className="hover:bg-slate-50/70">
+                            <td className="py-3 pr-4 font-medium text-[#172554]">{ms.title}</td>
+                            <td className="py-3 px-4 font-mono text-xs text-[#64748B] tabular-nums">
+                              {ms.dueDate}
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono text-xs text-[#172554] tabular-nums">
+                              {ms.tasksDone} / {ms.tasksTotal}
+                            </td>
+                            <td className="py-3 pl-4 text-right">
+                              <StatusLabel status={ms.status} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </section>
 
-          {/* Live Activity Feed Stream */}
-          <ActivityFeedStream
-            title="Recent Activity Stream & Feedback Logs"
-            subtitle="Live log of your task updates, chapter uploads, journals, and supervisor reviews."
-          />
-        </>
-      )}
+            {/* AI Copilot & Live Activity Feed Stream (12-column grid) */}
+            <div className="lg:col-span-6">
+              <WidgetErrorBoundary title="AI Copilot temporarily unavailable">
+                <AiProjectCopilot
+                  roleKey="student"
+                  institutionName={institutionName}
+                  contextData={aiContextData}
+                />
+              </WidgetErrorBoundary>
+            </div>
+
+            <div className="lg:col-span-6">
+              <WidgetErrorBoundary title="Activity Feed temporarily unavailable">
+                <ActivityFeedStream
+                  title="Recent Activity Stream & Feedback Logs"
+                  subtitle="Live log of your task updates, chapter uploads, journals, and supervisor reviews."
+                />
+              </WidgetErrorBoundary>
+            </div>
+          </>
+        )}
+      </div>
     </PortalLayout>
   );
 }

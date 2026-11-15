@@ -7,12 +7,12 @@ export default function PortalLayout({ navItems = [], children }) {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#172554]">
+    <div className="min-h-screen w-full flex flex-col bg-[#F8FAFC] text-[#172554]">
       <PortalHeader />
 
-      <div className="flex-1 mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+      <div className="flex-1 w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-6">
         {navItems.length > 0 ? (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
+          <div className="grid w-full grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
             {/* Mobile horizontal scrollable navigation strip */}
             <nav
               aria-label="Portal sections"
@@ -39,7 +39,7 @@ export default function PortalLayout({ navItems = [], children }) {
             </nav>
 
             {/* Desktop sidebar navigation */}
-            <aside className="hidden lg:block lg:col-span-3">
+            <aside className="hidden lg:block lg:col-span-3 xl:col-span-2">
               <nav
                 aria-label="Portal sidebar"
                 className="rounded-2xl border border-slate-200 bg-white p-2.5 space-y-1"
@@ -65,20 +65,20 @@ export default function PortalLayout({ navItems = [], children }) {
               </nav>
             </aside>
 
-            <main className="lg:col-span-9 min-w-0 space-y-6">
+            <main className="lg:col-span-9 xl:col-span-10 min-w-0 w-full space-y-6">
               <SmartSearchBar />
               {children}
             </main>
           </div>
         ) : (
-          <main className="min-w-0 space-y-6">
+          <main className="min-w-0 w-full space-y-6">
             <SmartSearchBar />
             {children}
           </main>
         )}
       </div>
 
-      <PublicFooter />
+      <PublicFooter fullWidth />
     </div>
   );
 }

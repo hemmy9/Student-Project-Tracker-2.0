@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
+import { normalizeAppError } from '../utils/errorHandler';
 
 function requireSupabase() {
   if (!isSupabaseConfigured || !supabase) {
@@ -12,13 +13,84 @@ function requireSupabase() {
 export async function signInWithSupabasePassword(email, password) {
   const client = requireSupabase();
   const { data, error } = await client.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+  if (error) throw new Error(normalizeAppError(error, 'Unable to sign in with Supabase Auth.'));
+  return data;
+}
+
+export async function signUpWithSupabasePassword({
+  email,
+  password,
+  fullName,
+  roleKey = 'student',
+  metadata = {},
+}) {
+  const client = requireSupabase();
+  const redirectTo =
+    typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined;
+  const { data, error } = await client.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: redirectTo,
+      data: {
+        full_name: fullName,
+        requested_role: roleKey,
+        ...metadata,
+      },
+    },
+  });
+  if (error) throw new Error(normalizeAppError(error, 'Unable to register account in Supabase Auth.'));
+  return data;
+}
+
+export async function resetSupabasePassword(email) {
+  const client = requireSupabase();
+  const redirectTo =
+    typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined;
+  const { error } = await client.auth.resetPasswordForEmail(email, {
+    redirectTo,
+  });
+  if (error) throw new Error(normalizeAppError(error, 'Failed to send password reset email.'));
+  return true;
+}
+
+export async function updateSupabasePassword(newPassword) {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.updateUser({ password: newPassword });
+  if (error) throw new Error(normalizeAppError(error, 'Unable to update password.'));
   return data;
 }
 
 export async function signOutSupabase() {
   if (!isSupabaseConfigured || !supabase) return;
-  await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut();
+  if (error) throw new Error(normalizeAppError(error, 'Unable to sign out cleanly.'));
+}
+
+export async function submitMembershipRequestRemote({
+  userId,
+  institutionId = null,
+  roleKey = 'student',
+  department = '',
+  academicIdentifier = '',
+  metadata = {},
+}) {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from('institution_memberships')
+    .insert({
+      user_id: userId,
+      institution_id: institutionId,
+      role_key: roleKey,
+      status: 'pending_approval',
+      department,
+      academic_identifier: academicIdentifier,
+      metadata,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(normalizeAppError(error, 'Could not submit membership request.'));
+  return data;
 }
 
 export async function fetchUserMemberships(userId) {
@@ -36,10 +108,9 @@ export async function fetchUserMemberships(userId) {
       institutions ( id, name, short_code, domain )
     `
     )
-    .eq('user_id', userId)
-    .eq('status', 'approved');
+    .eq('user_id', userId);
 
-  if (memError) throw memError;
+  if (memError) throw new Error(normalizeAppError(memError, 'Unable to fetch institutional memberships.'));
 
   const { data: platformAdminRow } = await client
     .from('platform_admins')
@@ -61,7 +132,7 @@ export async function fetchUserMemberships(userId) {
     roleLabel: roleLabels[m.role_key] || m.role_key,
     institutionId: m.institution_id,
     institutionName: m.institutions?.name || 'Registered Institution',
-    status: 'approved',
+    status: m.status || 'pending_approval',
   }));
 
   if (platformAdminRow) {
@@ -74,6 +145,13 @@ export async function fetchUserMemberships(userId) {
       status: 'approved',
     });
   }
+
+  // Prefer approved memberships first so activeMembership selects an authorized workspace automatically
+  formatted.sort((a, b) => {
+    const aApp = String(a.status).toLowerCase() === 'approved' ? 0 : 1;
+    const bApp = String(b.status).toLowerCase() === 'approved' ? 0 : 1;
+    return aApp - bApp;
+  });
 
   return formatted;
 }

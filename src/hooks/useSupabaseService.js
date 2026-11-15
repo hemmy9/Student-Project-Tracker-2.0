@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { isSupabaseConfigured } from '../lib/supabaseClient';
+import { normalizeAppError } from '../utils/errorHandler';
 import {
   bookOfficeHourRemote,
   createMilestoneRemote,
@@ -8,13 +9,17 @@ import {
   createProjectTaskRemote,
   fetchUserMemberships,
   getSignedDocumentUrl,
+  resetSupabasePassword,
   signInWithSupabasePassword,
   signOutSupabase,
+  signUpWithSupabasePassword,
   submitInstitutionApplicationRemote,
+  submitMembershipRequestRemote,
   submitMilestoneFeedbackRemote,
   subscribeToProjectMessages,
   toggleProjectTaskRemote,
   updateOfficeHourBookingRemote,
+  updateSupabasePassword,
   uploadChapterDocumentRemote,
 } from '../services/supabaseService';
 
@@ -51,7 +56,7 @@ export function useSupabaseService() {
         }
         return result;
       } catch (err) {
-        const msg = err?.message || 'Unexpected error communicating with Supabase.';
+        const msg = normalizeAppError(err, 'Unexpected error communicating with Supabase.');
         setError(msg);
         if (showErrorToast) {
           showToast({
@@ -60,7 +65,7 @@ export function useSupabaseService() {
             message: msg,
           });
         }
-        throw err;
+        throw new Error(msg);
       } finally {
         setLoading(false);
       }
@@ -72,6 +77,46 @@ export function useSupabaseService() {
     (email, password) =>
       runAction(() => signInWithSupabasePassword(email, password), {
         errorTitle: 'Sign-in failed',
+      }),
+    [runAction]
+  );
+
+  const signUp = useCallback(
+    (payload) =>
+      runAction(() => signUpWithSupabasePassword(payload), {
+        successTitle: 'Supabase account created',
+        successMessage: 'Check your email if verification is enabled before signing in.',
+        errorTitle: 'Registration failed',
+        showSuccessToast: true,
+      }),
+    [runAction]
+  );
+
+  const resetPassword = useCallback(
+    (email) =>
+      runAction(() => resetSupabasePassword(email), {
+        successTitle: 'Password reset sent',
+        successMessage: `Check ${email} for your Supabase recovery link.`,
+        errorTitle: 'Password reset failed',
+        showSuccessToast: true,
+      }),
+    [runAction]
+  );
+
+  const updatePassword = useCallback(
+    (newPassword) =>
+      runAction(() => updateSupabasePassword(newPassword), {
+        successTitle: 'Password updated',
+        errorTitle: 'Password update failed',
+        showSuccessToast: true,
+      }),
+    [runAction]
+  );
+
+  const submitMembershipRequest = useCallback(
+    (payload) =>
+      runAction(() => submitMembershipRequestRemote(payload), {
+        errorTitle: 'Membership request failed',
       }),
     [runAction]
   );
@@ -198,6 +243,10 @@ export function useSupabaseService() {
     clearError,
     runAction,
     signIn,
+    signUp,
+    resetPassword,
+    updatePassword,
+    submitMembershipRequest,
     signOut,
     loadMemberships,
     submitInstitutionApplication,

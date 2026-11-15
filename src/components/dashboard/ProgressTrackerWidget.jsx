@@ -14,6 +14,7 @@ export default function ProgressTrackerWidget({
   manageLabel = 'Open milestones workspace',
   tasksPath = '/student/tasks',
   tasksLabel = 'Kanban tasks',
+  compactPhaseGrid = false,
 }) {
   const enrichedPhases = milestones.map((ms, idx) => {
     const linked = tasks.filter((t) => t.milestoneId === ms.id);
@@ -69,7 +70,7 @@ export default function ProgressTrackerWidget({
   return (
     <section
       aria-label="Project progress tracker widget"
-      className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5"
+      className="h-full rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5 flex flex-col justify-between"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
@@ -175,7 +176,11 @@ export default function ProgressTrackerWidget({
       </div>
 
       {/* Stepped Milestone Phase Cards */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={`grid grid-cols-1 gap-3 ${
+          compactPhaseGrid ? 'sm:grid-cols-2' : 'md:grid-cols-2 xl:grid-cols-4'
+        }`}
+      >
         {enrichedPhases.map((phase) => {
           const Icon =
             phase.status === 'Approved'

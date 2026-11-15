@@ -68,7 +68,7 @@ export default function AiProjectCopilot({
   return (
     <section
       aria-label="AI project copilot"
-      className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4 flex flex-col justify-between"
+      className="h-full rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4 flex flex-col justify-between"
     >
       <div className="space-y-4">
         {/* Header */}
@@ -98,12 +98,25 @@ export default function AiProjectCopilot({
 
         {/* Insights Error */}
         {insightsError && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 flex items-start gap-2.5 text-xs text-amber-900">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-700 mt-0.5" aria-hidden="true" />
-            <div className="space-y-0.5">
-              <p className="font-semibold">AI Analysis Notice</p>
-              <p className="leading-relaxed">{insightsError}</p>
+          <div
+            role="alert"
+            className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 flex items-start justify-between gap-3 text-xs text-amber-900"
+          >
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-700 mt-0.5" aria-hidden="true" />
+              <div className="space-y-0.5">
+                <p className="font-semibold">AI Analysis Notice</p>
+                <p className="leading-relaxed">{insightsError}</p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={handleAnalyze}
+              disabled={insightsLoading}
+              className="shrink-0 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 font-semibold text-amber-900 hover:bg-amber-100 cursor-pointer"
+            >
+              Retry
+            </button>
           </div>
         )}
 

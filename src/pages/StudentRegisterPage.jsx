@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ShieldCheck } from 'lucide-react';
 import AuthLayout from '../components/layout/AuthLayout';
 import Button from '../components/ui/Button';
 import FormField from '../components/ui/FormField';
 import PasswordStrength from '../components/ui/PasswordStrength';
 import StageNotice from '../components/ui/StageNotice';
 import StatusAlert from '../components/ui/StatusAlert';
+import { useToast } from '../context/ToastContext';
 import { ACADEMIC_LEVELS, DEMO_INSTITUTIONS } from '../data/institutions';
+import { useSupabaseService } from '../hooks/useSupabaseService';
+import { normalizeAppError } from '../utils/errorHandler';
 import {
   validateConfirmPassword,
   validateEmail,
@@ -15,7 +19,12 @@ import {
   validateRequired,
 } from '../utils/validation';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default function StudentRegisterPage() {
+  const { showToast } = useToast();
+  const { isConfigured: supabaseReady, signUp, submitMembershipRequest } = useSupabaseService();
+
   const defaultInst = DEMO_INSTITUTIONS[0];
   const defaultDept = defaultInst.departments[0];
 
@@ -134,7 +143,7 @@ export default function StudentRegisterPage() {
     setErrors((prev) => ({ ...prev, [name]: validateField(name, value, form) }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const fields = [
       'fullName',
@@ -172,6 +181,77 @@ export default function StudentRegisterPage() {
     setLoading(true);
     setSubmitResult(null);
 
+    if (supabaseReady && !simulateError) {
+      try {
+        const studentCode = form.studentNumber.trim().toUpperCase();
+        const data = await signUp({
+          email: form.email.trim(),
+          password: form.password,
+          fullName: form.fullName.trim(),
+          roleKey: 'student',
+          metadata: {
+            institution_code: selectedInstitution.id,
+            institution_name: selectedInstitution.name,
+            department: selectedDepartment.name,
+            programme: form.programme,
+            student_number: studentCode,
+            academic_level: form.academicLevel,
+            expected_completion_year: form.expectedCompletionYear,
+          },
+        });
+
+        let membershipNote =
+          'Verify your email address if confirmation is enabled, then sign in while an Institution Administrator approves your membership.';
+
+        if (data?.session && data?.user) {
+          try {
+            await submitMembershipRequest({
+              userId: data.user.id,
+              institutionId: UUID_REGEX.test(form.institutionId) ? form.institutionId : null,
+              roleKey: 'student',
+              department: selectedDepartment.name,
+              academicIdentifier: studentCode,
+              metadata: {
+                institution_name: selectedInstitution.name,
+                programme: form.programme,
+                academic_level: form.academicLevel,
+                expected_completion_year: form.expectedCompletionYear,
+              },
+            });
+            membershipNote =
+              'Your Supabase Auth account and pending institutional membership request have been recorded.';
+          } catch {
+            membershipNote =
+              'Your Supabase Auth account was created with your academic metadata; institutional membership sync will finalize once your institution record is linked.';
+          }
+        }
+
+        setLoading(false);
+        setSubmitResult({
+          type: 'success',
+          title: 'Student account registered in Supabase Auth',
+          message: membershipNote,
+          summary: {
+            student: form.fullName.trim(),
+            institution: selectedInstitution.name,
+            department: selectedDepartment.name,
+            programme: form.programme,
+            studentNumber: studentCode,
+            membershipStatus: 'Pending Institution Administrator Approval',
+          },
+        });
+        return;
+      } catch (err) {
+        setLoading(false);
+        setSubmitResult({
+          type: 'error',
+          title: 'Supabase student registration failed',
+          message: normalizeAppError(err, 'Unable to complete student registration.'),
+        });
+        return;
+      }
+    }
+
     setTimeout(() => {
       setLoading(false);
       if (simulateError) {
@@ -184,10 +264,16 @@ export default function StudentRegisterPage() {
         return;
       }
 
+      showToast({
+        type: 'info',
+        title: 'Preview validation passed',
+        message: 'Configure Supabase env vars to persist new student accounts.',
+      });
+
       setSubmitResult({
         type: 'success',
-        title: 'Stage 1 preview: Student registration validated (not saved to database)',
-        message: `Your student details for ${selectedInstitution.name} passed validation. Once Supabase is connected in Stage 4, your institutional membership will be created with status "pending_institution_approval".`,
+        title: 'Preview mode: Student registration validated (not persisted)',
+        message: `Your student details for ${selectedInstitution.name} passed validation. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to create live Supabase Auth accounts.`,
         summary: {
           student: form.fullName.trim(),
           institution: selectedInstitution.name,
@@ -197,7 +283,7 @@ export default function StudentRegisterPage() {
           membershipStatus: 'Pending Institution Administrator Approval',
         },
       });
-    }, 700);
+    }, 550);
   };
 
   return (
@@ -208,17 +294,35 @@ export default function StudentRegisterPage() {
       backLabel="Back to registration hub"
       contextHeading="Student membership approval flow"
       contextPoints={[
-        'Choose from approved institutions currently listed on the platform (demonstration institutions shown for Stage 1 preview).',
+        'Choose from institutions listed on the platform and provide your verified student ID and academic level.',
         'Your institutional membership stays pending until an Institution Administrator verifies your student ID and department.',
         'Once approved and assigned to a project, you can track milestones, write weekly journals, and submit chapters to your supervisor.',
       ]}
     >
       <div className="space-y-6">
-        <StageNotice
-          simulateError={simulateError}
-          onToggleSimulateError={setSimulateError}
-          description="Stage 1 frontend preview: institution, department, and programme options use local demonstration records. No account or membership record is saved until Stage 4."
-        />
+        {supabaseReady ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-xs text-emerald-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" aria-hidden="true" />
+              <span>Live Supabase Auth Registration Enabled</span>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs text-emerald-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={simulateError}
+                onChange={(e) => setSimulateError(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-emerald-400 text-[#2563EB]"
+              />
+              <span>Simulate error</span>
+            </label>
+          </div>
+        ) : (
+          <StageNotice
+            simulateError={simulateError}
+            onToggleSimulateError={setSimulateError}
+            description="Demo preview mode: validation runs locally. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to register real Supabase Auth accounts."
+          />
+        )}
 
         {submitResult && (
           <StatusAlert type={submitResult.type} title={submitResult.title}>
@@ -414,7 +518,9 @@ export default function StudentRegisterPage() {
             size="lg"
             fullWidth
             loading={loading}
-            loadingText="Validating registration..."
+            loadingText={
+              supabaseReady ? 'Creating Supabase student account...' : 'Validating registration...'
+            }
           >
             Submit student registration
           </Button>

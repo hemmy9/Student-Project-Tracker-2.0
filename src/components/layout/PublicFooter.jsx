@@ -1,9 +1,15 @@
 import { Link } from 'react-router-dom';
 
-export default function PublicFooter() {
+export default function PublicFooter({ fullWidth = false }) {
   return (
     <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+      <div
+        className={
+          fullWidth
+            ? 'w-full px-4 py-8 sm:px-6 lg:px-6'
+            : 'mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8'
+        }
+      >
         <div className="grid grid-cols-1 gap-8 md:grid-cols-12">
           <div className="md:col-span-5 space-y-2.5">
             <p className="font-display text-base font-bold text-[#172554]">

@@ -11,6 +11,7 @@ import StatCard from '../../components/dashboard/StatCard';
 import StatusLabel from '../../components/dashboard/StatusLabel';
 import PortalLayout from '../../components/layout/PortalLayout';
 import EmptyState from '../../components/ui/EmptyState';
+import { WidgetErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { useDemoAppState } from '../../context/DemoAppStateContext';
 import { useDemoSession } from '../../context/DemoSessionContext';
 import { getPortalNavItems } from '../../utils/roleRouting';
@@ -141,41 +142,44 @@ export default function InstitutionDashboardPage() {
 
           <section
             aria-label="Institution metrics"
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+            className="grid grid-cols-1 gap-4 sm:grid-cols-6 lg:grid-cols-12"
           >
             {metrics.map((metric) => (
-              <StatCard
-                key={metric.label}
-                label={metric.label}
-                value={metric.value}
-                hint={metric.hint}
-              />
+              <div key={metric.label} className="sm:col-span-3 lg:col-span-3">
+                <StatCard label={metric.label} value={metric.value} hint={metric.hint} />
+              </div>
             ))}
           </section>
 
           <section
             aria-label="Institutional analytics"
-            className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+            className="grid grid-cols-1 gap-4 lg:grid-cols-12"
           >
-            <BreakdownDonut
-              title="Supervisor Allocation Coverage"
-              subtitle="Assigned vs. unassigned student projects"
-              segments={allocationSegments}
-            />
-            <HorizontalBarChart
-              title="Department Enrollment Distribution"
-              subtitle="Tracked students and faculty capacity per department"
-              items={departmentLoadBars}
-            />
+            <div className="lg:col-span-6">
+              <BreakdownDonut
+                title="Supervisor Allocation Coverage"
+                subtitle="Assigned vs. unassigned student projects"
+                segments={allocationSegments}
+              />
+            </div>
+            <div className="lg:col-span-6">
+              <HorizontalBarChart
+                title="Department Enrollment Distribution"
+                subtitle="Tracked students and faculty capacity per department"
+                items={departmentLoadBars}
+              />
+            </div>
           </section>
 
-          <AiProjectCopilot
-            roleKey="institution_admin"
-            institutionName={inst.info.name}
-            contextData={aiContextData}
-            title="AI Institutional Operations Copilot"
-            subtitle="Analyze supervisor allocation gaps, departmental workload, and verification bottlenecks."
-          />
+          <WidgetErrorBoundary title="AI Institutional Operations Copilot unavailable">
+            <AiProjectCopilot
+              roleKey="institution_admin"
+              institutionName={inst.info.name}
+              contextData={aiContextData}
+              title="AI Institutional Operations Copilot"
+              subtitle="Analyze supervisor allocation gaps, departmental workload, and verification bottlenecks."
+            />
+          </WidgetErrorBoundary>
 
           {/* Membership Requests */}
           <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5">

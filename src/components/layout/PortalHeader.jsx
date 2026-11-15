@@ -75,7 +75,7 @@ export default function PortalHeader() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-md print:hidden">
-        <div className="mx-auto flex h-14 sm:h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="flex h-14 sm:h-16 w-full items-center justify-between gap-3 px-4 sm:px-6 lg:px-6">
           {/* Zone 1: Brand + Active Scope */}
           <div className="flex items-center gap-3 min-w-0">
             <Link

@@ -11,6 +11,7 @@ import StatCard from '../../components/dashboard/StatCard';
 import StatusLabel from '../../components/dashboard/StatusLabel';
 import PortalLayout from '../../components/layout/PortalLayout';
 import EmptyState from '../../components/ui/EmptyState';
+import { WidgetErrorBoundary } from '../../components/ui/ErrorBoundary';
 import { useDemoAppState } from '../../context/DemoAppStateContext';
 import { getPortalNavItems } from '../../utils/roleRouting';
 
@@ -139,41 +140,44 @@ export default function PlatformDashboardPage() {
 
           <section
             aria-label="Platform metrics"
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+            className="grid grid-cols-1 gap-4 sm:grid-cols-6 lg:grid-cols-12"
           >
             {metrics.map((metric) => (
-              <StatCard
-                key={metric.label}
-                label={metric.label}
-                value={metric.value}
-                hint={metric.hint}
-              />
+              <div key={metric.label} className="sm:col-span-3 lg:col-span-3">
+                <StatCard label={metric.label} value={metric.value} hint={metric.hint} />
+              </div>
             ))}
           </section>
 
           <section
             aria-label="Platform analytics"
-            className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+            className="grid grid-cols-1 gap-4 lg:grid-cols-12"
           >
-            <BreakdownDonut
-              title="Tenant Onboarding Standing"
-              subtitle="Status breakdown across all institutional records"
-              segments={onboardingSegments}
-            />
-            <HorizontalBarChart
-              title="Active Seat Distribution"
-              subtitle="Verified academic accounts per active institution"
-              items={seatBars}
-            />
+            <div className="lg:col-span-6">
+              <BreakdownDonut
+                title="Tenant Onboarding Standing"
+                subtitle="Status breakdown across all institutional records"
+                segments={onboardingSegments}
+              />
+            </div>
+            <div className="lg:col-span-6">
+              <HorizontalBarChart
+                title="Active Seat Distribution"
+                subtitle="Verified academic accounts per active institution"
+                items={seatBars}
+              />
+            </div>
           </section>
 
-          <AiProjectCopilot
-            roleKey="platform_admin"
-            institutionName="Platform-Wide Governance"
-            contextData={aiContextData}
-            title="AI Platform Governance Copilot"
-            subtitle="Domain verification triage, tenant health overview, and audit summary powered by Gemini."
-          />
+          <WidgetErrorBoundary title="AI Platform Governance Copilot unavailable">
+            <AiProjectCopilot
+              roleKey="platform_admin"
+              institutionName="Platform-Wide Governance"
+              contextData={aiContextData}
+              title="AI Platform Governance Copilot"
+              subtitle="Domain verification triage, tenant health overview, and audit summary powered by Gemini."
+            />
+          </WidgetErrorBoundary>
 
           {/* Institution Applications & Directory */}
           <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5">

@@ -53,7 +53,7 @@ export default function OfficeHoursWidget({
   return (
     <section
       aria-label="Office hours dashboard widget"
-      className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4 flex flex-col justify-between"
+      className="h-full rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4 flex flex-col justify-between"
     >
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-3">

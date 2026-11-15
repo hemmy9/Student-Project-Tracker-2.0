@@ -1,16 +1,20 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ShieldCheck } from 'lucide-react';
 import AuthLayout from '../components/layout/AuthLayout';
 import Button from '../components/ui/Button';
 import FormField from '../components/ui/FormField';
 import PasswordStrength from '../components/ui/PasswordStrength';
 import StageNotice from '../components/ui/StageNotice';
 import StatusAlert from '../components/ui/StatusAlert';
+import { useToast } from '../context/ToastContext';
 import {
   DEMO_INSTITUTIONS,
   SAMPLE_INVITE_CODES,
   SUPERVISOR_TITLES,
 } from '../data/institutions';
+import { useSupabaseService } from '../hooks/useSupabaseService';
+import { normalizeAppError } from '../utils/errorHandler';
 import {
   validateConfirmPassword,
   validateEmail,
@@ -20,7 +24,12 @@ import {
   validateRequired,
 } from '../utils/validation';
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default function SupervisorRegisterPage() {
+  const { showToast } = useToast();
+  const { isConfigured: supabaseReady, signUp, submitMembershipRequest } = useSupabaseService();
+
   const defaultInst = DEMO_INSTITUTIONS[0];
   const [mode, setMode] = useState('request'); // 'request' | 'invite'
 
@@ -117,7 +126,7 @@ export default function SupervisorRegisterPage() {
     setErrors((prev) => ({ ...prev, [name]: validateField(name, value, form, mode) }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const commonFields = [
       'fullName',
@@ -154,6 +163,91 @@ export default function SupervisorRegisterPage() {
     setLoading(true);
     setSubmitResult(null);
 
+    const deptName =
+      availableDepartments.find((d) => d.id === form.departmentId)?.name || 'Selected Department';
+    const normalizedCode = form.inviteCode.trim().toUpperCase();
+
+    if (supabaseReady && !simulateError) {
+      try {
+        const displayName = `${form.academicTitle} ${form.fullName.trim()}`;
+        const data = await signUp({
+          email: form.email.trim(),
+          password: form.password,
+          fullName: displayName,
+          roleKey: 'supervisor',
+          metadata: {
+            onboarding_mode: mode,
+            academic_title: form.academicTitle,
+            specialization: form.specialization.trim(),
+            ...(mode === 'invite'
+              ? { invite_code: normalizedCode }
+              : {
+                  institution_code: selectedInstitution.id,
+                  institution_name: selectedInstitution.name,
+                  department: deptName,
+                  staff_id: form.staffId.trim().toUpperCase(),
+                }),
+          },
+        });
+
+        let workflowNote =
+          'Verify your email address if confirmation is enabled, then await Institution Administrator verification before accessing student workspaces.';
+
+        if (data?.session && data?.user) {
+          try {
+            await submitMembershipRequest({
+              userId: data.user.id,
+              institutionId:
+                mode === 'request' && UUID_REGEX.test(form.institutionId)
+                  ? form.institutionId
+                  : null,
+              roleKey: 'supervisor',
+              department: mode === 'request' ? deptName : '',
+              academicIdentifier:
+                mode === 'invite' ? normalizedCode : form.staffId.trim().toUpperCase(),
+              metadata: {
+                onboarding_mode: mode,
+                academic_title: form.academicTitle,
+                specialization: form.specialization.trim(),
+                institution_name:
+                  mode === 'request' ? selectedInstitution.name : 'Invitation Verification',
+              },
+            });
+            workflowNote =
+              'Your Supabase Auth account and pending supervisor membership request have been saved.';
+          } catch {
+            workflowNote =
+              'Your Supabase Auth account was created with your faculty metadata; institutional membership approval will complete onboarding.';
+          }
+        }
+
+        setLoading(false);
+        setSubmitResult({
+          type: 'success',
+          title: 'Supervisor account registered in Supabase Auth',
+          message: workflowNote,
+          summary: {
+            supervisor: displayName,
+            path:
+              mode === 'invite'
+                ? `Invitation Code (${normalizedCode})`
+                : `${selectedInstitution.name} · ${deptName}`,
+            specialization: form.specialization.trim(),
+            status: 'Pending Institution Administrator Approval',
+          },
+        });
+        return;
+      } catch (err) {
+        setLoading(false);
+        setSubmitResult({
+          type: 'error',
+          title: 'Supabase supervisor registration failed',
+          message: normalizeAppError(err, 'Unable to complete supervisor registration.'),
+        });
+        return;
+      }
+    }
+
     setTimeout(() => {
       setLoading(false);
       if (simulateError) {
@@ -161,31 +255,34 @@ export default function SupervisorRegisterPage() {
           type: 'error',
           title: 'Simulated verification failure',
           message:
-            'This demonstrates how an expired invitation code or server error will appear in Stage 4.',
+            'This demonstrates how an expired invitation code or Supabase Auth error is displayed cleanly.',
         });
         return;
       }
 
+      showToast({
+        type: 'info',
+        title: 'Preview validation passed',
+        message: 'Configure Supabase env vars to persist new supervisor accounts.',
+      });
+
       if (mode === 'invite') {
-        const normalizedCode = form.inviteCode.trim().toUpperCase();
         setSubmitResult({
           type: 'success',
-          title: 'Stage 1 preview: Invitation onboarding validated (not saved to database)',
-          message: `Invitation code ${normalizedCode} and supervisor credentials for ${form.fullName.trim()} passed format validation. In Stage 4, the backend will verify the cryptographic invitation token before linking your supervisor role.`,
+          title: 'Preview mode: Invitation onboarding validated (not persisted)',
+          message: `Invitation code ${normalizedCode} and supervisor credentials for ${form.fullName.trim()} passed format validation. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to register in Supabase Auth.`,
           summary: {
             supervisor: `${form.academicTitle} ${form.fullName.trim()}`,
             path: `Invitation Code (${normalizedCode})`,
             specialization: form.specialization.trim(),
-            status: 'Awaiting Backend Invitation Token Verification (Stage 4)',
+            status: 'Pending Invitation Token Verification',
           },
         });
       } else {
-        const deptName =
-          availableDepartments.find((d) => d.id === form.departmentId)?.name || 'Selected Department';
         setSubmitResult({
           type: 'success',
-          title: 'Stage 1 preview: Supervisor membership request validated (not saved)',
-          message: `Membership request for ${selectedInstitution.name} passed client validation. In Stage 4, this request will be created with status "pending_institution_approval" until approved by an Institution Administrator.`,
+          title: 'Preview mode: Supervisor membership request validated (not persisted)',
+          message: `Membership request for ${selectedInstitution.name} passed client validation. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to register in Supabase Auth.`,
           summary: {
             supervisor: `${form.academicTitle} ${form.fullName.trim()}`,
             path: `${selectedInstitution.name} · ${deptName}`,
@@ -194,7 +291,7 @@ export default function SupervisorRegisterPage() {
           },
         });
       }
-    }, 700);
+    }, 550);
   };
 
   return (
@@ -207,11 +304,10 @@ export default function SupervisorRegisterPage() {
       contextPoints={[
         'Selecting Supervisor Registration does not grant access to student records immediately.',
         'Membership requests must be approved by the target Institution Administrator before any student projects become visible.',
-        'If your department coordinator already issued an invitation code, switch to "Accept Invitation Code" to link your account via verified token.',
+        'If your department coordinator already issued an invitation code, switch to "Accept Invitation Code" to link your account.',
       ]}
     >
       <div className="space-y-6">
-        {/* Segmented mode selector */}
         <div
           role="tablist"
           aria-label="Supervisor registration method"
@@ -245,11 +341,29 @@ export default function SupervisorRegisterPage() {
           </button>
         </div>
 
-        <StageNotice
-          simulateError={simulateError}
-          onToggleSimulateError={setSimulateError}
-          description="Stage 1 frontend preview: both supervisor registration workflows validate inputs locally without writing to a database or verifying live invitation tokens yet."
-        />
+        {supabaseReady ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-xs text-emerald-900">
+            <div className="flex items-center gap-2 font-semibold">
+              <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" aria-hidden="true" />
+              <span>Live Supabase Auth Registration Enabled</span>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs text-emerald-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={simulateError}
+                onChange={(e) => setSimulateError(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-emerald-400 text-[#2563EB]"
+              />
+              <span>Simulate error</span>
+            </label>
+          </div>
+        ) : (
+          <StageNotice
+            simulateError={simulateError}
+            onToggleSimulateError={setSimulateError}
+            description="Demo preview mode: both supervisor registration workflows validate inputs locally. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to register in Supabase Auth."
+          />
+        )}
 
         {submitResult && (
           <StatusAlert type={submitResult.type} title={submitResult.title}>
@@ -293,7 +407,7 @@ export default function SupervisorRegisterPage() {
                 onChange={handleChange}
                 onBlur={handleBlur}
                 error={errors.inviteCode}
-                helperText={`Sample test format for Stage 1 preview: ${SAMPLE_INVITE_CODES[0]}`}
+                helperText={`Sample test format: ${SAMPLE_INVITE_CODES[0]}`}
                 required
               />
             </fieldset>
@@ -446,7 +560,11 @@ export default function SupervisorRegisterPage() {
             fullWidth
             loading={loading}
             loadingText={
-              mode === 'invite' ? 'Validating invitation...' : 'Submitting request...'
+              supabaseReady
+                ? 'Creating Supabase supervisor account...'
+                : mode === 'invite'
+                  ? 'Validating invitation...'
+                  : 'Submitting request...'
             }
           >
             {mode === 'invite'

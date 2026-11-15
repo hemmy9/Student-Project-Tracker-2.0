@@ -67,7 +67,7 @@ export default function ActivityFeedStream({
   return (
     <section
       aria-label="Activity feed stream"
-      className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4"
+      className="h-full rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4 flex flex-col justify-between"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
