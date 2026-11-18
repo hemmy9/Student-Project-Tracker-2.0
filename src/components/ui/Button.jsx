@@ -4,11 +4,11 @@ const VARIANT_CLASSES = {
   primary:
     'bg-[#2563EB] text-white hover:bg-[#1D4ED8] active:bg-[#1E40AF] border border-transparent shadow-sm',
   navy:
-    'bg-[#172554] text-white hover:bg-[#0F172A] active:bg-[#0F172A] border border-transparent shadow-sm',
+    'bg-[#172554] text-white hover:bg-[#0F172A] active:bg-[#0F172A] dark:bg-[var(--bg-elevated)] dark:hover:bg-[var(--bg-subtle)] border border-transparent dark:border-[var(--border-strong)] shadow-sm',
   secondary:
-    'bg-white text-[#172554] hover:bg-slate-50 active:bg-slate-100 border border-slate-300',
+    'bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] active:bg-[var(--bg-subtle)] border border-[var(--border-strong)]',
   ghost:
-    'bg-transparent text-[#64748B] hover:text-[#172554] hover:bg-slate-100 border border-transparent',
+    'bg-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] border border-transparent',
 };
 
 const SIZE_CLASSES = {

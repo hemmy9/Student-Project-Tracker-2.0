@@ -24,14 +24,14 @@ export default function FormField({
   const resolvedType = isPassword ? (showPassword ? 'text' : 'password') : type;
 
   const baseControlClasses = [
-    'w-full rounded-lg border bg-white text-[#172554] placeholder:text-slate-400 transition-colors duration-150',
+    'w-full rounded-lg border bg-[var(--bg-surface)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] transition-colors duration-150',
     'text-base sm:text-sm',
     as === 'textarea' ? 'px-3.5 py-2.5' : 'min-h-[44px] px-3.5 py-2.5',
     isPassword ? 'pr-12' : '',
     error
       ? 'border-red-500 focus:border-red-600 focus:ring-2 focus:ring-red-500/15'
-      : 'border-slate-300 hover:border-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15',
-    'focus:outline-none disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed',
+      : 'border-[var(--border-strong)] hover:border-[var(--accent-primary)]/60 focus:border-[var(--accent-primary)] focus:ring-2 focus:ring-[#2563EB]/15',
+    'focus:outline-none disabled:bg-[var(--bg-elevated)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed',
   ].join(' ');
 
   return (
@@ -39,11 +39,11 @@ export default function FormField({
       <div className="flex items-baseline justify-between gap-2">
         <label
           htmlFor={id}
-          className="block text-sm font-medium text-[#172554]"
+          className="block text-sm font-medium text-[var(--text-primary)]"
         >
           {label}
           {required && (
-            <span className="ml-1 text-red-600" aria-hidden="true">
+            <span className="ml-1 text-red-600 dark:text-red-400" aria-hidden="true">
               *
             </span>
           )}
@@ -112,7 +112,7 @@ export default function FormField({
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
             aria-label={showPassword ? 'Hide password' : 'Show password'}
-            className="absolute inset-y-0 right-0 flex min-w-[44px] items-center justify-center text-[#64748B] hover:text-[#172554] cursor-pointer"
+            className="absolute inset-y-0 right-0 flex min-w-[44px] items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
           >
             {showPassword ? (
               <EyeOff className="h-4 w-4" aria-hidden="true" />
@@ -127,13 +127,13 @@ export default function FormField({
         <p
           id={`${id}-error`}
           role="alert"
-          className="flex items-start gap-1.5 text-xs font-medium text-red-700"
+          className="flex items-start gap-1.5 text-xs font-medium text-red-700 dark:text-red-400"
         >
           <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
           <span>{error}</span>
         </p>
       ) : helperText ? (
-        <p id={`${id}-hint`} className="text-xs text-[#64748B]">
+        <p id={`${id}-hint`} className="text-xs text-[var(--text-muted)]">
           {helperText}
         </p>
       ) : null}

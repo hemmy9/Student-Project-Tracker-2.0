@@ -3,28 +3,28 @@ import { useToast } from '../../context/ToastContext';
 
 const TOAST_STYLES = {
   success: {
-    border: 'border-emerald-200',
+    border: 'border-emerald-200 dark:border-emerald-500/35',
     accent: 'bg-emerald-600',
     icon: CheckCircle2,
-    iconColor: 'text-emerald-600',
+    iconColor: 'text-emerald-600 dark:text-emerald-400',
   },
   error: {
-    border: 'border-red-200',
+    border: 'border-red-200 dark:border-red-500/35',
     accent: 'bg-red-600',
     icon: AlertCircle,
-    iconColor: 'text-red-600',
+    iconColor: 'text-red-600 dark:text-red-400',
   },
   warning: {
-    border: 'border-amber-200',
+    border: 'border-amber-200 dark:border-amber-500/35',
     accent: 'bg-amber-500',
     icon: AlertTriangle,
-    iconColor: 'text-amber-600',
+    iconColor: 'text-amber-600 dark:text-amber-400',
   },
   info: {
-    border: 'border-blue-200',
+    border: 'border-blue-200 dark:border-blue-500/35',
     accent: 'bg-[#2563EB]',
     icon: Info,
-    iconColor: 'text-[#2563EB]',
+    iconColor: 'text-[#2563EB] dark:text-[#60A5FA]',
   },
 };
 
@@ -47,19 +47,19 @@ export default function ToastContainer() {
           <div
             key={toast.id}
             role="status"
-            className={`pointer-events-auto relative overflow-hidden rounded-xl border ${style.border} bg-white shadow-lg`}
+            className={`pointer-events-auto relative overflow-hidden rounded-xl border ${style.border} bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-lg`}
           >
             <span className={`absolute inset-y-0 left-0 w-1 ${style.accent}`} aria-hidden="true" />
             <div className="flex items-start gap-3 p-3.5 pl-4">
               <Icon className={`h-5 w-5 mt-0.5 shrink-0 ${style.iconColor}`} aria-hidden="true" />
               <div className="min-w-0 flex-1 space-y-0.5">
                 {toast.title && (
-                  <p className="font-display text-sm font-bold text-[#172554] leading-snug">
+                  <p className="font-display text-sm font-bold text-[var(--text-primary)] leading-snug">
                     {toast.title}
                   </p>
                 )}
                 {toast.message && (
-                  <p className="text-xs text-[#64748B] leading-relaxed">{toast.message}</p>
+                  <p className="text-xs text-[var(--text-muted)] leading-relaxed">{toast.message}</p>
                 )}
                 {toast.actionLabel && typeof toast.onAction === 'function' && (
                   <button
@@ -68,7 +68,7 @@ export default function ToastContainer() {
                       toast.onAction();
                       dismissToast(toast.id);
                     }}
-                    className="mt-1.5 inline-flex text-xs font-semibold text-[#2563EB] hover:underline cursor-pointer"
+                    className="mt-1.5 inline-flex text-xs font-semibold text-[var(--accent-primary)] hover:underline cursor-pointer"
                   >
                     {toast.actionLabel}
                   </button>
@@ -78,7 +78,7 @@ export default function ToastContainer() {
                 type="button"
                 onClick={() => dismissToast(toast.id)}
                 aria-label="Dismiss notification"
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-[#172554] cursor-pointer"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] cursor-pointer"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>

@@ -17,28 +17,31 @@ import Button from '../../../components/ui/Button';
 import EmptyState from '../../../components/ui/EmptyState';
 import FormField from '../../../components/ui/FormField';
 import StatusAlert from '../../../components/ui/StatusAlert';
-import { useDemoAppState } from '../../../context/DemoAppStateContext';
+import {
+  resolveInstitutionKey,
+  resolveWorkspaceInstitution,
+  useDemoAppState,
+} from '../../../context/DemoAppStateContext';
 import { useDemoSession } from '../../../context/DemoSessionContext';
 import { useToast } from '../../../context/ToastContext';
+import { isPastDeadline } from '../../../utils/dateHelper';
 import { getPortalNavItems } from '../../../utils/roleRouting';
 
-const TODAY_ISO = '2026-11-14';
-
 const PRIORITY_STYLES = {
-  High: 'text-red-700 bg-red-50 border-red-200',
-  Medium: 'text-[#2563EB] bg-blue-50 border-blue-200',
-  Low: 'text-[#64748B] bg-slate-100 border-slate-200',
+  High: 'text-red-700 dark:text-red-400 bg-red-500/10 border-red-500/25',
+  Medium: 'text-[var(--accent-primary)] bg-blue-500/10 border-blue-500/25',
+  Low: 'text-[var(--text-secondary)] bg-[var(--bg-elevated)] border-[var(--border-subtle)]',
 };
 
 const KANBAN_COLUMNS = [
-  { key: 'todo', label: 'To Do', accent: 'border-slate-300' },
-  { key: 'in_progress', label: 'In Progress', accent: 'border-[#2563EB]' },
-  { key: 'in_review', label: 'In Review', accent: 'border-amber-500' },
-  { key: 'done', label: 'Completed', accent: 'border-emerald-600' },
+  { key: 'todo', label: 'To Do', accent: 'border-t-slate-400 dark:border-t-slate-500' },
+  { key: 'in_progress', label: 'In Progress', accent: 'border-t-[var(--accent-primary)]' },
+  { key: 'in_review', label: 'In Review', accent: 'border-t-amber-500' },
+  { key: 'done', label: 'Completed', accent: 'border-t-emerald-600' },
 ];
 
 export default function StudentTasksPage() {
-  const { activeMembership } = useDemoSession();
+  const { session, activeMembership } = useDemoSession();
   const { showToast } = useToast();
   const {
     state,
@@ -50,10 +53,13 @@ export default function StudentTasksPage() {
     updateMilestoneDueDate,
   } = useDemoAppState();
 
-  const institutionName = activeMembership?.institutionName || 'University of Westbridge';
-  const project =
-    state.projectsByInstitution[institutionName] ||
-    state.projectsByInstitution['University of Westbridge'];
+  const institutionName = resolveWorkspaceInstitution(activeMembership, session);
+  const projectKey = resolveInstitutionKey(state.projectsByInstitution, institutionName);
+  const project = projectKey ? state.projectsByInstitution[projectKey] : null;
+  const mutationInstitution = projectKey || institutionName;
+
+  const milestones = project?.milestones || [];
+  const tasks = project?.tasks || [];
 
   const [viewMode, setViewMode] = useState('kanban');
   const [filter, setFilter] = useState('all');
@@ -64,7 +70,7 @@ export default function StudentTasksPage() {
   const [taskDueDate, setTaskDueDate] = useState('');
   const [taskPriority, setTaskPriority] = useState('Medium');
   const [taskStage, setTaskStage] = useState('todo');
-  const [taskMilestoneId, setTaskMilestoneId] = useState(project.milestones[0]?.id || '');
+  const [taskMilestoneId, setTaskMilestoneId] = useState(milestones[0]?.id || '');
   const [taskError, setTaskError] = useState('');
 
   const [msTitle, setMsTitle] = useState('');
@@ -75,15 +81,15 @@ export default function StudentTasksPage() {
   const [feedbackBanner, setFeedbackBanner] = useState('');
 
   const normalizedTasks = useMemo(() => {
-    return project.tasks.map((t) => ({
+    return tasks.map((t) => ({
       ...t,
       status: t.status || (t.completed ? 'done' : 'todo'),
     }));
-  }, [project.tasks]);
+  }, [tasks]);
 
   const completedCount = normalizedTasks.filter((t) => t.completed).length;
   const overdueCount = normalizedTasks.filter(
-    (t) => !t.completed && t.dueDate && t.dueDate < TODAY_ISO
+    (t) => !t.completed && t.dueDate && isPastDeadline(t.dueDate)
   ).length;
   const completionPct = normalizedTasks.length
     ? Math.round((completedCount / normalizedTasks.length) * 100)
@@ -94,13 +100,13 @@ export default function StudentTasksPage() {
       if (milestoneFilter !== 'all' && t.milestoneId !== milestoneFilter) return false;
       if (filter === 'open') return !t.completed;
       if (filter === 'done') return t.completed;
-      if (filter === 'overdue') return !t.completed && t.dueDate && t.dueDate < TODAY_ISO;
+      if (filter === 'overdue') return !t.completed && t.dueDate && isPastDeadline(t.dueDate);
       return true;
     });
   }, [normalizedTasks, filter, milestoneFilter]);
 
   const milestonesWithProgress = useMemo(() => {
-    return project.milestones.map((ms, index) => {
+    return milestones.map((ms, index) => {
       const linked = normalizedTasks.filter((t) => t.milestoneId === ms.id);
       const done = linked.filter((t) => t.completed).length;
       const pct =
@@ -109,10 +115,22 @@ export default function StudentTasksPage() {
           : ms.status === 'Approved'
             ? 100
             : 0;
-      const isOverdue = ms.status !== 'Approved' && ms.dueDate < TODAY_ISO;
+      const isOverdue = ms.status !== 'Approved' && isPastDeadline(ms.dueDate);
       return { ...ms, index: index + 1, done, total: linked.length, pct, isOverdue };
     });
-  }, [project.milestones, normalizedTasks]);
+  }, [milestones, normalizedTasks]);
+
+  if (!project) {
+    return (
+      <PortalLayout navItems={getPortalNavItems('student')}>
+        <EmptyState
+          icon={CheckSquare}
+          title="No active student task board"
+          description={`No student project board is provisioned under ${institutionName}. Switch institution membership or reset demo data if needed.`}
+        />
+      </PortalLayout>
+    );
+  }
 
   const handleAddTask = (e) => {
     e.preventDefault();
@@ -120,7 +138,7 @@ export default function StudentTasksPage() {
       setTaskError('Enter both a task description and a target due date.');
       return;
     }
-    addProjectTask(institutionName, {
+    addProjectTask(mutationInstitution, {
       title: taskTitle.trim(),
       dueDate: taskDueDate,
       priority: taskPriority,
@@ -147,7 +165,7 @@ export default function StudentTasksPage() {
       setMsError('Enter a milestone title and due date.');
       return;
     }
-    addMilestone(institutionName, {
+    addMilestone(mutationInstitution, {
       title: msTitle.trim(),
       dueDate: msDueDate,
     });
@@ -164,7 +182,7 @@ export default function StudentTasksPage() {
 
   const handleSaveMilestoneDate = (msId) => {
     if (!editingMsDate) return;
-    updateMilestoneDueDate(institutionName, msId, editingMsDate);
+    updateMilestoneDueDate(mutationInstitution, msId, editingMsDate);
     setEditingMsId('');
     setEditingMsDate('');
     setFeedbackBanner('Milestone target completion date updated.');
@@ -177,7 +195,7 @@ export default function StudentTasksPage() {
 
   const handleDropOnColumn = (columnKey) => {
     if (!draggedTaskId) return;
-    moveProjectTaskStatus(institutionName, draggedTaskId, columnKey);
+    moveProjectTaskStatus(mutationInstitution, draggedTaskId, columnKey);
     setDraggedTaskId(null);
     const colLabel = KANBAN_COLUMNS.find((c) => c.key === columnKey)?.label || columnKey;
     setFeedbackBanner(`Moved task to "${colLabel}".`);
@@ -192,13 +210,13 @@ export default function StudentTasksPage() {
     <PortalLayout navItems={getPortalNavItems('student')}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
-          <p className="font-mono text-xs font-medium text-[#2563EB]">
+          <p className="font-mono text-xs font-medium text-[var(--accent-primary)]">
             {project.code} · {institutionName}
           </p>
-          <h1 className="font-display text-2xl font-bold text-[#172554]">
+          <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">
             Tasks, Kanban Board &amp; Milestones Tracker
           </h1>
-          <p className="text-sm text-[#64748B]">
+          <p className="text-sm text-[var(--text-secondary)]">
             Switch between Kanban board and list view, create prioritized tasks, and track milestone completion.
           </p>
         </div>
@@ -207,17 +225,17 @@ export default function StudentTasksPage() {
         <div
           role="tablist"
           aria-label="Task workspace view mode"
-          className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 self-start"
+          className="inline-flex items-center gap-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-1 self-start"
         >
           <button
             type="button"
             role="tab"
             aria-selected={viewMode === 'kanban'}
             onClick={() => setViewMode('kanban')}
-            className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-3 text-xs font-semibold cursor-pointer ${
+            className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-3 text-xs font-semibold cursor-pointer transition-colors ${
               viewMode === 'kanban'
-                ? 'bg-[#172554] text-white'
-                : 'text-[#64748B] hover:text-[#172554]'
+                ? 'bg-[var(--accent-primary)] text-white'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <Columns3 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -228,10 +246,10 @@ export default function StudentTasksPage() {
             role="tab"
             aria-selected={viewMode === 'list'}
             onClick={() => setViewMode('list')}
-            className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-3 text-xs font-semibold cursor-pointer ${
+            className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-3 text-xs font-semibold cursor-pointer transition-colors ${
               viewMode === 'list'
-                ? 'bg-[#172554] text-white'
-                : 'text-[#64748B] hover:text-[#172554]'
+                ? 'bg-[var(--accent-primary)] text-white'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <List className="h-3.5 w-3.5" aria-hidden="true" />
@@ -248,32 +266,32 @@ export default function StudentTasksPage() {
 
       {/* Summary Progress Strip */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 space-y-2.5">
+        <div className="md:col-span-2 spt-surface rounded-2xl p-5 space-y-2.5">
           <div className="flex items-center justify-between text-sm">
-            <span className="font-semibold text-[#172554]">Overall Task Completion</span>
-            <span className="font-mono font-bold text-[#172554] tabular-nums">
+            <span className="font-semibold text-[var(--text-primary)]">Overall Task Completion</span>
+            <span className="font-mono font-bold text-[var(--text-primary)] tabular-nums">
               {completedCount} / {normalizedTasks.length} ({completionPct}%)
             </span>
           </div>
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--border-subtle)]">
             <div
-              className="h-full rounded-full bg-[#2563EB] transition-all duration-300"
+              className="h-full rounded-full bg-[var(--accent-primary)] transition-all duration-300"
               style={{ width: `${completionPct}%` }}
             />
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 flex items-center justify-between gap-3">
+        <div className="spt-surface rounded-2xl p-5 flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-medium text-[#64748B]">Attention Check</p>
-            <p className="font-display text-xl font-bold text-[#172554] tabular-nums mt-0.5">
+            <p className="text-xs font-medium text-[var(--text-secondary)]">Attention Check</p>
+            <p className="font-display text-xl font-bold text-[var(--text-primary)] tabular-nums mt-0.5">
               {overdueCount} overdue task{overdueCount === 1 ? '' : 's'}
             </p>
           </div>
           {overdueCount > 0 ? (
-            <AlertCircle className="h-7 w-7 text-amber-600 shrink-0" aria-hidden="true" />
+            <AlertCircle className="h-7 w-7 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden="true" />
           ) : (
-            <CheckCircle2 className="h-7 w-7 text-emerald-600 shrink-0" aria-hidden="true" />
+            <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400 shrink-0" aria-hidden="true" />
           )}
         </div>
       </div>
@@ -281,9 +299,9 @@ export default function StudentTasksPage() {
       {/* Create Task Form */}
       <form
         onSubmit={handleAddTask}
-        className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4"
+        className="spt-surface rounded-2xl p-5 space-y-4"
       >
-        <h2 className="font-display text-base font-bold text-[#172554]">Create New Task</h2>
+        <h2 className="font-display text-base font-bold text-[var(--text-primary)]">Create New Task</h2>
         {taskError && (
           <StatusAlert type="error" title="Missing task details">
             {taskError}
@@ -354,14 +372,14 @@ export default function StudentTasksPage() {
       {viewMode === 'kanban' && (
         <section aria-label="Kanban board" className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-bold text-[#172554]">
+            <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
               Project Kanban Board
             </h2>
             <select
               aria-label="Filter Kanban cards by milestone"
               value={milestoneFilter}
               onChange={(e) => setMilestoneFilter(e.target.value)}
-              className="min-h-[40px] rounded-lg border border-slate-200 bg-white px-3 text-base sm:text-xs font-medium text-[#172554] focus:border-[#2563EB] focus:outline-none"
+              className="min-h-[40px] rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 text-base sm:text-xs font-medium text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
             >
               <option value="all">All milestones</option>
               {project.milestones.map((m) => (
@@ -385,24 +403,24 @@ export default function StudentTasksPage() {
                   key={col.key}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={() => handleDropOnColumn(col.key)}
-                  className={`rounded-2xl border border-slate-200 border-t-4 ${col.accent} bg-white p-4 flex flex-col gap-3 min-h-[260px]`}
+                  className={`spt-surface rounded-2xl border-t-4 ${col.accent} p-4 flex flex-col gap-3 min-h-[260px]`}
                 >
                   <div className="flex items-center justify-between">
-                    <h3 className="font-display text-sm font-bold text-[#172554]">{col.label}</h3>
-                    <span className="font-mono text-xs font-semibold text-[#64748B] tabular-nums">
+                    <h3 className="font-display text-sm font-bold text-[var(--text-primary)]">{col.label}</h3>
+                    <span className="font-mono text-xs font-semibold text-[var(--text-muted)] tabular-nums">
                       {colTasks.length}
                     </span>
                   </div>
 
                   {colTasks.length === 0 ? (
-                    <div className="flex-1 rounded-xl border border-dashed border-slate-200 bg-[#F8FAFC] p-4 flex items-center justify-center text-center text-xs text-[#64748B]">
+                    <div className="flex-1 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 flex items-center justify-center text-center text-xs text-[var(--text-muted)]">
                       No tasks in {col.label}
                     </div>
                   ) : (
                     <div className="space-y-3">
                       {colTasks.map((task) => {
                         const ms = project.milestones.find((m) => m.id === task.milestoneId);
-                        const isOverdue = !task.completed && task.dueDate && task.dueDate < TODAY_ISO;
+                        const isOverdue = !task.completed && task.dueDate && isPastDeadline(task.dueDate);
                         const priority = task.priority || 'Medium';
 
                         return (
@@ -410,7 +428,7 @@ export default function StudentTasksPage() {
                             key={task.id}
                             draggable
                             onDragStart={() => setDraggedTaskId(task.id)}
-                            className="rounded-xl border border-slate-200 bg-[#F8FAFC] p-3.5 space-y-2.5 cursor-grab active:cursor-grabbing"
+                            className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3.5 space-y-2.5 cursor-grab active:cursor-grabbing"
                           >
                             <div className="flex items-start justify-between gap-2">
                               <span
@@ -423,11 +441,11 @@ export default function StudentTasksPage() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  deleteProjectTask(institutionName, task.id);
+                                  deleteProjectTask(mutationInstitution, task.id);
                                   setFeedbackBanner(`Removed task "${task.title}".`);
                                 }}
                                 aria-label={`Delete task ${task.title}`}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-700 cursor-pointer"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--text-muted)] hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-400 cursor-pointer"
                               >
                                 <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                               </button>
@@ -435,22 +453,24 @@ export default function StudentTasksPage() {
 
                             <p
                               className={`text-sm font-semibold leading-snug ${
-                                task.completed ? 'line-through text-[#64748B]' : 'text-[#172554]'
+                                task.completed
+                                  ? 'line-through text-[var(--text-muted)]'
+                                  : 'text-[var(--text-primary)]'
                               }`}
                             >
                               {task.title}
                             </p>
 
-                            <div className="space-y-0.5 text-[11px] text-[#64748B] tabular-nums">
+                            <div className="space-y-0.5 text-[11px] text-[var(--text-secondary)] tabular-nums">
                               <p className="truncate">{ms ? ms.title : 'General'}</p>
-                              <p className={isOverdue ? 'font-semibold text-red-700' : ''}>
+                              <p className={isOverdue ? 'font-semibold text-red-700 dark:text-red-400' : ''}>
                                 Due {task.dueDate}
                                 {isOverdue ? ' · Overdue' : ''}
                               </p>
                             </div>
 
                             {/* Touch-friendly column mover for mobile */}
-                            <div className="pt-1 border-t border-slate-200/80">
+                            <div className="pt-1 border-t border-[var(--border-subtle)]">
                               <label htmlFor={`move-${task.id}`} className="sr-only">
                                 Move task column
                               </label>
@@ -458,7 +478,7 @@ export default function StudentTasksPage() {
                                 id={`move-${task.id}`}
                                 value={task.status}
                                 onChange={(e) => {
-                                  moveProjectTaskStatus(institutionName, task.id, e.target.value);
+                                  moveProjectTaskStatus(mutationInstitution, task.id, e.target.value);
                                   const nextLabel =
                                     KANBAN_COLUMNS.find((c) => c.key === e.target.value)?.label ||
                                     e.target.value;
@@ -469,7 +489,7 @@ export default function StudentTasksPage() {
                                     message: task.title,
                                   });
                                 }}
-                                className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-2.5 text-base sm:text-xs font-medium text-[#172554] focus:border-[#2563EB] focus:outline-none"
+                                className="min-h-[38px] w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 text-base sm:text-xs font-medium text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
                               >
                                 {KANBAN_COLUMNS.map((c) => (
                                   <option key={c.key} value={c.key}>
@@ -493,9 +513,9 @@ export default function StudentTasksPage() {
       {/* List View + Milestones Tracker */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {viewMode === 'list' && (
-          <section className="lg:col-span-7 rounded-2xl border border-slate-200 bg-white p-5 space-y-4 self-start">
+          <section className="lg:col-span-7 spt-surface rounded-2xl p-5 space-y-4 self-start">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="font-display text-base font-bold text-[#172554]">
+              <h2 className="font-display text-base font-bold text-[var(--text-primary)]">
                 Project Tasks ({visibleTasks.length})
               </h2>
 
@@ -504,7 +524,7 @@ export default function StudentTasksPage() {
                   aria-label="Filter tasks by milestone"
                   value={milestoneFilter}
                   onChange={(e) => setMilestoneFilter(e.target.value)}
-                  className="min-h-[36px] rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-[#172554] focus:border-[#2563EB] focus:outline-none"
+                  className="min-h-[36px] rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 text-xs font-medium text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
                 >
                   <option value="all">All milestones</option>
                   {project.milestones.map((m) => (
@@ -514,7 +534,7 @@ export default function StudentTasksPage() {
                   ))}
                 </select>
 
-                <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
+                <div className="flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
                   {[
                     { key: 'all', label: 'All' },
                     { key: 'open', label: 'Open' },
@@ -525,8 +545,10 @@ export default function StudentTasksPage() {
                       key={tab.key}
                       type="button"
                       onClick={() => setFilter(tab.key)}
-                      className={`min-h-[32px] rounded-md px-2.5 text-xs font-medium cursor-pointer ${
-                        filter === tab.key ? 'bg-white text-[#172554] shadow-xs' : 'text-[#64748B]'
+                      className={`min-h-[32px] rounded-md px-2.5 text-xs font-medium cursor-pointer transition-colors ${
+                        filter === tab.key
+                          ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                     >
                       {tab.label}
@@ -547,29 +569,29 @@ export default function StudentTasksPage() {
                 }}
               />
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-[var(--border-subtle)]">
                 {visibleTasks.map((task) => {
                   const ms = project.milestones.find((m) => m.id === task.milestoneId);
-                  const isOverdue = !task.completed && task.dueDate && task.dueDate < TODAY_ISO;
+                  const isOverdue = !task.completed && task.dueDate && isPastDeadline(task.dueDate);
                   const priority = task.priority || 'Medium';
                   return (
                     <div
                       key={task.id}
-                      className="py-3.5 flex items-start justify-between gap-2 hover:bg-slate-50/70 rounded-lg px-2 -mx-2"
+                      className="py-3.5 flex items-start justify-between gap-2 hover:bg-[var(--bg-elevated)] rounded-lg px-2 -mx-2"
                     >
                       <button
                         type="button"
-                        onClick={() => toggleProjectTask(institutionName, task.id)}
+                        onClick={() => toggleProjectTask(mutationInstitution, task.id)}
                         className="min-h-[44px] flex-1 text-left flex items-start gap-3 cursor-pointer"
                       >
                         {task.completed ? (
                           <CheckSquare
-                            className="h-5 w-5 mt-0.5 shrink-0 text-[#2563EB]"
+                            className="h-5 w-5 mt-0.5 shrink-0 text-[var(--accent-primary)]"
                             aria-hidden="true"
                           />
                         ) : (
                           <Square
-                            className="h-5 w-5 mt-0.5 shrink-0 text-slate-400"
+                            className="h-5 w-5 mt-0.5 shrink-0 text-[var(--text-muted)]"
                             aria-hidden="true"
                           />
                         )}
@@ -577,7 +599,9 @@ export default function StudentTasksPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <p
                               className={`text-sm font-medium ${
-                                task.completed ? 'line-through text-[#64748B]' : 'text-[#172554]'
+                                task.completed
+                                  ? 'line-through text-[var(--text-muted)]'
+                                  : 'text-[var(--text-primary)]'
                               }`}
                             >
                               {task.title}
@@ -590,13 +614,13 @@ export default function StudentTasksPage() {
                               {priority}
                             </span>
                             {isOverdue && (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 dark:text-red-400">
                                 <Clock className="h-3 w-3" aria-hidden="true" />
                                 Overdue
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-[#64748B] tabular-nums">
+                          <p className="text-xs text-[var(--text-secondary)] tabular-nums">
                             {ms ? ms.title : 'General'} · Due {task.dueDate}
                           </p>
                         </div>
@@ -605,11 +629,11 @@ export default function StudentTasksPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          deleteProjectTask(institutionName, task.id);
+                          deleteProjectTask(mutationInstitution, task.id);
                           setFeedbackBanner(`Removed task "${task.title}".`);
                         }}
                         aria-label={`Delete task ${task.title}`}
-                        className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-700 cursor-pointer shrink-0"
+                        className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-400 cursor-pointer shrink-0"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
                       </button>
@@ -630,13 +654,13 @@ export default function StudentTasksPage() {
           <div
             className={`${
               viewMode === 'kanban' ? 'lg:col-span-7' : ''
-            } rounded-2xl border border-slate-200 bg-white p-5 space-y-4`}
+            } spt-surface rounded-2xl p-5 space-y-4`}
           >
             <div>
-              <h2 className="font-display text-base font-bold text-[#172554]">
+              <h2 className="font-display text-base font-bold text-[var(--text-primary)]">
                 Milestones Tracker ({milestonesWithProgress.length})
               </h2>
-              <p className="text-xs text-[#64748B]">
+              <p className="text-xs text-[var(--text-secondary)]">
                 Live completion calculated from tasks linked to each stage.
               </p>
             </div>
@@ -645,18 +669,24 @@ export default function StudentTasksPage() {
               {milestonesWithProgress.map((ms) => (
                 <li
                   key={ms.id}
-                  className="rounded-xl border border-slate-200 bg-[#F8FAFC] p-4 space-y-2.5"
+                  className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 space-y-2.5"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2.5 min-w-0">
-                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#172554] font-mono text-xs font-bold text-white tabular-nums">
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent-primary)] font-mono text-xs font-bold text-white tabular-nums">
                         {ms.index}
                       </span>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-[#172554] leading-snug">
+                        <p className="text-sm font-semibold text-[var(--text-primary)] leading-snug">
                           {ms.title}
                         </p>
-                        <p className="font-mono text-xs text-[#64748B] tabular-nums mt-0.5">
+                        <p
+                          className={`font-mono text-xs tabular-nums mt-0.5 ${
+                            ms.isOverdue
+                              ? 'font-semibold text-red-700 dark:text-red-400'
+                              : 'text-[var(--text-muted)]'
+                          }`}
+                        >
                           Due {ms.dueDate}
                           {ms.isOverdue ? ' · Past target date' : ''}
                         </p>
@@ -666,18 +696,18 @@ export default function StudentTasksPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[11px] text-[#64748B] tabular-nums">
+                    <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] tabular-nums">
                       <span>
                         {ms.total > 0
                           ? `${ms.done} of ${ms.total} linked tasks done`
                           : 'No linked tasks yet'}
                       </span>
-                      <span className="font-mono font-semibold text-[#172554]">{ms.pct}%</span>
+                      <span className="font-mono font-semibold text-[var(--text-primary)]">{ms.pct}%</span>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--border-subtle)]">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
-                          ms.status === 'Approved' ? 'bg-emerald-600' : 'bg-[#2563EB]'
+                          ms.status === 'Approved' ? 'bg-emerald-600' : 'bg-[var(--accent-primary)]'
                         }`}
                         style={{ width: `${ms.pct}%` }}
                       />
@@ -691,7 +721,7 @@ export default function StudentTasksPage() {
                         value={editingMsDate}
                         onChange={(e) => setEditingMsDate(e.target.value)}
                         aria-label="New target date"
-                        className="min-h-[36px] rounded-lg border border-slate-300 bg-white px-2.5 text-base sm:text-xs text-[#172554]"
+                        className="min-h-[36px] rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 text-base sm:text-xs text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
                       />
                       <Button
                         type="button"
@@ -718,7 +748,7 @@ export default function StudentTasksPage() {
                           setEditingMsId(ms.id);
                           setEditingMsDate(ms.dueDate);
                         }}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-[#2563EB] hover:underline cursor-pointer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--accent-primary)] hover:underline cursor-pointer"
                       >
                         <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
                         <span>Adjust target date</span>
@@ -734,9 +764,9 @@ export default function StudentTasksPage() {
             onSubmit={handleAddMilestone}
             className={`${
               viewMode === 'kanban' ? 'lg:col-span-5 self-start' : ''
-            } rounded-2xl border border-slate-200 bg-white p-5 space-y-4`}
+            } spt-surface rounded-2xl p-5 space-y-4`}
           >
-            <h2 className="font-display text-base font-bold text-[#172554]">Add New Milestone</h2>
+            <h2 className="font-display text-base font-bold text-[var(--text-primary)]">Add New Milestone</h2>
             {msError && (
               <StatusAlert type="error" title="Missing milestone details">
                 {msError}
@@ -767,3 +797,4 @@ export default function StudentTasksPage() {
     </PortalLayout>
   );
 }
+

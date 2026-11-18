@@ -5,26 +5,42 @@ import Button from '../../../components/ui/Button';
 import EmptyState from '../../../components/ui/EmptyState';
 import FormField from '../../../components/ui/FormField';
 import StatusAlert from '../../../components/ui/StatusAlert';
-import { useDemoAppState } from '../../../context/DemoAppStateContext';
+import {
+  resolveInstitutionKey,
+  resolveWorkspaceInstitution,
+  useDemoAppState,
+} from '../../../context/DemoAppStateContext';
 import { useDemoSession } from '../../../context/DemoSessionContext';
 import { useAiAssistant } from '../../../hooks/useAiAssistant';
 import { getPortalNavItems } from '../../../utils/roleRouting';
 
 export default function StudentJournalsPage() {
-  const { activeMembership } = useDemoSession();
+  const { session, activeMembership } = useDemoSession();
   const { state, addWeeklyJournal } = useDemoAppState();
   const { draftLoading, generateDraft } = useAiAssistant();
 
-  const institutionName = activeMembership?.institutionName || 'University of Westbridge';
-  const project =
-    state.projectsByInstitution[institutionName] ||
-    state.projectsByInstitution['University of Westbridge'];
+  const institutionName = resolveWorkspaceInstitution(activeMembership, session);
+  const projectKey = resolveInstitutionKey(state.projectsByInstitution, institutionName);
+  const project = projectKey ? state.projectsByInstitution[projectKey] : null;
+  const mutationInstitution = projectKey || institutionName;
 
   const [summary, setSummary] = useState('');
   const [blockers, setBlockers] = useState('');
   const [nextSteps, setNextSteps] = useState('');
   const [error, setError] = useState('');
   const [submittedNotice, setSubmittedNotice] = useState(false);
+
+  if (!project) {
+    return (
+      <PortalLayout navItems={getPortalNavItems('student')}>
+        <EmptyState
+          icon={BookText}
+          title="No active student journal workspace"
+          description={`No student weekly journal record is provisioned under ${institutionName}. Switch institution membership or reset demo data if needed.`}
+        />
+      </PortalLayout>
+    );
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -33,7 +49,7 @@ export default function StudentJournalsPage() {
       return;
     }
 
-    addWeeklyJournal(institutionName, {
+    addWeeklyJournal(mutationInstitution, {
       summary: summary.trim(),
       blockers: blockers.trim() || 'None reported.',
       nextSteps: nextSteps.trim(),
@@ -73,13 +89,13 @@ export default function StudentJournalsPage() {
   return (
     <PortalLayout navItems={getPortalNavItems('student')}>
       <div className="space-y-1">
-        <p className="font-mono text-xs font-medium text-[#2563EB]">
+        <p className="font-mono text-xs font-medium text-[var(--accent-primary)]">
           {project.code} · {institutionName}
         </p>
-        <h1 className="font-display text-2xl font-bold text-[#172554]">
+        <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">
           Weekly Progress Journals
         </h1>
-        <p className="text-sm text-[#64748B]">
+        <p className="text-sm text-[var(--text-secondary)]">
           Log weekly achievements, blockers, and next steps for {project.supervisorName} to review.
         </p>
       </div>
@@ -93,10 +109,10 @@ export default function StudentJournalsPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <form
           onSubmit={handleSubmit}
-          className="lg:col-span-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4 self-start"
+          className="lg:col-span-5 spt-surface rounded-2xl p-5 sm:p-6 space-y-4 self-start"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-bold text-[#172554]">
+            <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
               Log Week {(project.journals[0]?.weekNumber || 0) + 1} Journal
             </h2>
             <Button
@@ -106,7 +122,7 @@ export default function StudentJournalsPage() {
               onClick={handleDraftWithAi}
               disabled={draftLoading}
             >
-              <Sparkles className="h-3.5 w-3.5 inline mr-1.5 text-[#2563EB]" aria-hidden="true" />
+              <Sparkles className="h-3.5 w-3.5 inline mr-1.5 text-[var(--accent-primary)]" aria-hidden="true" />
               {draftLoading ? 'Drafting...' : 'Draft with AI'}
             </Button>
           </div>
@@ -155,7 +171,7 @@ export default function StudentJournalsPage() {
         </form>
 
         <section className="lg:col-span-7 space-y-4">
-          <h2 className="font-display text-lg font-bold text-[#172554]">
+          <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
             Journal History ({project.journals.length})
           </h2>
 
@@ -170,43 +186,43 @@ export default function StudentJournalsPage() {
               {project.journals.map((entry) => (
                 <article
                   key={entry.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3"
+                  className="spt-surface rounded-2xl p-5 space-y-3"
                 >
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-                    <p className="font-display text-base font-bold text-[#172554]">
+                  <div className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-2.5">
+                    <p className="font-display text-base font-bold text-[var(--text-primary)]">
                       Week {entry.weekNumber}
                     </p>
-                    <span className="font-mono text-xs text-[#64748B] tabular-nums">
+                    <span className="font-mono text-xs text-[var(--text-muted)] tabular-nums">
                       {entry.date}
                     </span>
                   </div>
 
                   <div className="space-y-2 text-sm">
                     <div>
-                      <p className="text-xs font-semibold text-[#64748B]">Summary</p>
-                      <p className="text-[#172554] leading-relaxed">{entry.summary}</p>
+                      <p className="text-xs font-semibold text-[var(--text-secondary)]">Summary</p>
+                      <p className="text-[var(--text-primary)] leading-relaxed">{entry.summary}</p>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-[#64748B]">Blockers</p>
-                      <p className="text-[#172554] leading-relaxed">{entry.blockers}</p>
+                      <p className="text-xs font-semibold text-[var(--text-secondary)]">Blockers</p>
+                      <p className="text-[var(--text-primary)] leading-relaxed">{entry.blockers}</p>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-[#64748B]">Next Steps</p>
-                      <p className="text-[#172554] leading-relaxed">{entry.nextSteps}</p>
+                      <p className="text-xs font-semibold text-[var(--text-secondary)]">Next Steps</p>
+                      <p className="text-[var(--text-primary)] leading-relaxed">{entry.nextSteps}</p>
                     </div>
                   </div>
 
                   {entry.supervisorFeedback ? (
-                    <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-3.5 space-y-1">
-                      <p className="text-xs font-semibold text-[#172554]">
+                    <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3.5 space-y-1">
+                      <p className="text-xs font-semibold text-[var(--text-primary)]">
                         Supervisor Feedback · {entry.reviewedAt}
                       </p>
-                      <p className="text-xs sm:text-sm text-[#172554] leading-relaxed">
+                      <p className="text-xs sm:text-sm text-[var(--text-primary)] leading-relaxed">
                         {entry.supervisorFeedback}
                       </p>
                     </div>
                   ) : (
-                    <p className="text-xs text-[#64748B]">Awaiting supervisor review.</p>
+                    <p className="text-xs text-[var(--text-muted)]">Awaiting supervisor review.</p>
                   )}
                 </article>
               ))}
@@ -217,3 +233,4 @@ export default function StudentJournalsPage() {
     </PortalLayout>
   );
 }
+

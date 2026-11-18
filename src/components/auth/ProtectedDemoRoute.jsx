@@ -5,6 +5,22 @@ import { useAuthGuard } from '../../hooks/useAuthGuard';
 import PortalHeader from '../layout/PortalHeader';
 import PublicFooter from '../layout/PublicFooter';
 
+function getLoginPathForAllowedRoles(allowedRoles) {
+  if (!Array.isArray(allowedRoles) || allowedRoles.length !== 1) {
+    return '/login';
+  }
+  switch (allowedRoles[0]) {
+    case 'student':
+      return '/login/student';
+    case 'supervisor':
+      return '/login/supervisor';
+    case 'institution_admin':
+      return '/login/admin';
+    default:
+      return '/login';
+  }
+}
+
 export default function ProtectedDemoRoute({ allowedRoles, children }) {
   const { authLoading, authError, clearAuthError, refreshMemberships, signOutDemo } =
     useDemoSession();
@@ -17,21 +33,22 @@ export default function ProtectedDemoRoute({ allowedRoles, children }) {
   } = useAuthGuard({ allowedRoles });
   const location = useLocation();
   const navigate = useNavigate();
+  const portalLoginPath = getLoginPathForAllowedRoles(allowedRoles);
 
   if (authLoading) {
     return (
-      <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#172554]">
+      <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)]">
         <PortalHeader />
         <main className="flex-1 flex items-center justify-center px-6 py-12">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xs space-y-3">
+          <div className="w-full max-w-md rounded-2xl spt-surface p-8 text-center space-y-3">
             <Loader2
-              className="mx-auto h-7 w-7 animate-spin text-[#2563EB]"
+              className="mx-auto h-7 w-7 animate-spin text-[var(--accent-primary)]"
               aria-hidden="true"
             />
-            <p className="font-display text-base font-bold text-[#172554]">
+            <p className="font-display text-base font-bold text-[var(--text-primary)]">
               Verifying workspace session...
             </p>
-            <p className="text-xs text-[#64748B]">
+            <p className="text-xs text-[var(--text-muted)]">
               Synchronizing authentication state and institutional role permissions.
             </p>
           </div>
@@ -43,24 +60,24 @@ export default function ProtectedDemoRoute({ allowedRoles, children }) {
 
   if (authError && !isAuthenticated) {
     return (
-      <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#172554]">
+      <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)]">
         <PortalHeader />
         <main className="flex-1 flex items-center justify-center px-6 py-12">
-          <div className="w-full max-w-lg rounded-2xl border border-red-200 bg-white p-6 sm:p-8 space-y-4">
-            <div className="flex items-center gap-2.5 text-red-700">
+          <div className="w-full max-w-lg rounded-2xl spt-surface border-red-500/35 p-6 sm:p-8 space-y-4">
+            <div className="flex items-center gap-2.5 text-red-500">
               <ShieldAlert className="h-5 w-5 shrink-0" aria-hidden="true" />
               <p className="font-mono text-xs font-semibold">AUTH SYNC ERROR</p>
             </div>
-            <h1 className="font-display text-2xl font-bold text-[#172554]">
+            <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">
               Could not verify your session
             </h1>
-            <p className="text-sm text-[#64748B] leading-relaxed">{authError}</p>
+            <p className="text-sm text-[var(--text-muted)] leading-relaxed">{authError}</p>
             <div className="pt-2 flex flex-col sm:flex-row gap-3">
               <button
                 type="button"
                 onClick={() => {
                   clearAuthError();
-                  navigate('/login');
+                  navigate(portalLoginPath);
                 }}
                 className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1D4ED8] cursor-pointer"
               >
@@ -68,7 +85,7 @@ export default function ProtectedDemoRoute({ allowedRoles, children }) {
               </button>
               <Link
                 to="/"
-                className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-[#172554] hover:bg-slate-50"
+                className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-5 py-2.5 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
               >
                 Return to Homepage
               </Link>
@@ -81,16 +98,16 @@ export default function ProtectedDemoRoute({ allowedRoles, children }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+    return <Navigate to={portalLoginPath} state={{ from: location.pathname }} replace />;
   }
 
   if (!isAuthorized) {
     return (
-      <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#172554]">
+      <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)]">
         <PortalHeader />
         <main className="flex-1 flex items-center justify-center px-6 py-12">
-          <div className="max-w-lg w-full rounded-2xl border border-red-200 bg-white p-6 sm:p-8 space-y-4">
-            <div className="flex items-center gap-2.5 text-red-700">
+          <div className="max-w-lg w-full rounded-2xl spt-surface border-red-500/35 p-6 sm:p-8 space-y-4">
+            <div className="flex items-center gap-2.5 text-red-500">
               <ShieldAlert className="h-5 w-5 shrink-0" aria-hidden="true" />
               <p className="font-mono text-xs font-semibold">
                 {denialReason === 'unapproved'
@@ -98,22 +115,22 @@ export default function ProtectedDemoRoute({ allowedRoles, children }) {
                   : '403 · ROLE GUARD RESTRICTED'}
               </p>
             </div>
-            <h1 className="font-display text-2xl font-bold text-[#172554]">
+            <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">
               {denialReason === 'unapproved'
                 ? 'Institutional membership is not yet approved'
                 : 'Access restricted for your current role'}
             </h1>
-            <p className="text-sm text-[#64748B] leading-relaxed">
+            <p className="text-sm text-[var(--text-muted)] leading-relaxed">
               Your active membership is{' '}
-              <strong className="text-[#172554]">{activeMembership.roleLabel}</strong> at{' '}
-              <strong className="text-[#172554]">{activeMembership.institutionName}</strong>. The
+              <strong className="text-[var(--text-primary)]">{activeMembership.roleLabel}</strong> at{' '}
+              <strong className="text-[var(--text-primary)]">{activeMembership.institutionName}</strong>. The
               route{' '}
-              <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">
+              <code className="font-mono text-xs bg-[var(--bg-elevated)] px-1.5 py-0.5 rounded">
                 {location.pathname}
               </code>{' '}
               requires {allowedRoles?.join(' or ')} authorization.
             </p>
-            <p className="text-xs text-[#64748B] leading-relaxed">
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
               {denialReason === 'unapproved'
                 ? 'An Institution Administrator must approve your institutional membership before portal workspaces and PostgreSQL Row Level Security (RLS) policies grant access.'
                 : 'Client-side route guards pair with PostgreSQL Row Level Security (RLS) so unauthorized requests are blocked across both UI and database layers.'}
@@ -133,12 +150,31 @@ export default function ProtectedDemoRoute({ allowedRoles, children }) {
                     type="button"
                     onClick={async () => {
                       await signOutDemo();
-                      navigate('/login');
+                      navigate(portalLoginPath);
                     }}
-                    className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-[#172554] hover:bg-slate-50 cursor-pointer"
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-5 py-2.5 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] cursor-pointer"
                   >
                     Sign Out
                   </button>
+                </>
+              ) : activeMembership.roleKey === 'platform_admin' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await signOutDemo();
+                      navigate('/login');
+                    }}
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-lg bg-[#2563EB] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#1D4ED8] cursor-pointer"
+                  >
+                    Sign Out
+                  </button>
+                  <Link
+                    to="/portal-preview"
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-5 py-2.5 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+                  >
+                    Inspect Workspace Scope
+                  </Link>
                 </>
               ) : (
                 <>
@@ -150,7 +186,7 @@ export default function ProtectedDemoRoute({ allowedRoles, children }) {
                   </Link>
                   <Link
                     to="/portal-preview"
-                    className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-[#172554] hover:bg-slate-50"
+                    className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--bg-elevated)] px-5 py-2.5 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
                   >
                     Inspect Workspace Scope
                   </Link>

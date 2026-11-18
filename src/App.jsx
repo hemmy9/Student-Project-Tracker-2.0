@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
+import DeadlineReminderSync from './components/layout/DeadlineReminderSync';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import ToastContainer from './components/ui/ToastContainer';
 import { DemoAppStateProvider } from './context/DemoAppStateContext';
 import { DemoSessionProvider } from './context/DemoSessionContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider, useToast } from './context/ToastContext';
 import AppRoutes from './routes/AppRoutes';
 import { normalizeAppError } from './utils/errorHandler';
@@ -30,16 +32,19 @@ function GlobalErrorListener() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <ErrorBoundary>
-        <DemoSessionProvider>
-          <DemoAppStateProvider>
-            <GlobalErrorListener />
-            <AppRoutes />
-            <ToastContainer />
-          </DemoAppStateProvider>
-        </DemoSessionProvider>
-      </ErrorBoundary>
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <ErrorBoundary>
+          <DemoSessionProvider>
+            <DemoAppStateProvider>
+              <GlobalErrorListener />
+              <DeadlineReminderSync />
+              <AppRoutes />
+              <ToastContainer />
+            </DemoAppStateProvider>
+          </DemoSessionProvider>
+        </ErrorBoundary>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }

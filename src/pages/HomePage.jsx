@@ -1,304 +1,356 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   Building2,
   CheckCircle2,
+  ClipboardCheck,
   FileCheck2,
   FolderKanban,
   GraduationCap,
   LockKeyhole,
-  Shield,
   UserCheck,
+  UserPlus,
 } from 'lucide-react';
 import FeaturesSection from '../components/home/FeaturesSection';
 import HeroSection from '../components/home/HeroSection';
-import PublicHeader from '../components/layout/PublicHeader';
 import PublicFooter from '../components/layout/PublicFooter';
-import ImageWithFallback from '../components/ui/ImageWithFallback';
+import PublicHeader from '../components/layout/PublicHeader';
+import { FadeInSection, PerspectiveCard, StaggerGroup, StaggerItem } from '../components/ui/MotionPrimitives';
+import {
+  GRACE_POLYTECHNIC_BRAND,
+  GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE,
+} from '../config/gracePolytechnic';
 
-const PORTAL_DETAILS = {
-  student: {
+const PORTAL_CARDS = [
+  {
     id: 'student',
-    label: 'Student Portal',
-    shortLabel: 'Student',
+    badge: '01 · STUDENT PORTAL',
+    title: 'Student',
+    audience: 'ND & HND Final-Year Candidates',
+    loginPath: '/login/student',
+    ctaLabel: 'Sign in as Student',
+    secondaryPath: '/register/student',
+    secondaryLabel: 'New student registration',
     icon: GraduationCap,
-    audience: 'Undergraduate, Master’s & Doctoral Candidates',
-    summary:
-      'Keep every milestone, weekly progress journal, chapter upload, and supervisor revision request in a single structured workspace.',
-    capabilities: [
-      'Track assigned project milestones, task checklists, and target completion dates',
-      'Submit weekly progress journals and chapter drafts directly to assigned supervisors',
-      'Respond to revision feedback while preserving complete submission version history',
-      'Generate and print formatted academic progress reports for department reviews',
+    accentBar: 'border-t-[#2563EB]',
+    iconStyle: 'border-blue-500/25 bg-blue-500/12 text-[#3B82F6]',
+    badgeColor: 'text-[#3B82F6]',
+    ctaStyle: 'bg-[#2563EB] hover:bg-[#1D4ED8] text-white',
+    description:
+      'Manage project milestones, log weekly progress journals, upload chapter drafts, and schedule supervisor office hours.',
+    highlights: [
+      'Track project tasks, milestones, and chapter review status',
+      'Submit weekly journals and respond to revision comments',
+      'Book available supervisor consultation slots',
     ],
-    accessRule: 'Requires approved institutional membership before accessing project workspaces.',
   },
-  supervisor: {
+  {
     id: 'supervisor',
-    label: 'Supervisor Portal',
-    shortLabel: 'Supervisor',
+    badge: '02 · SUPERVISOR PORTAL',
+    title: 'Supervisor',
+    audience: 'Academic Advisors & Project Supervisors',
+    loginPath: '/login/supervisor',
+    ctaLabel: 'Sign in as Supervisor',
+    secondaryPath: null,
+    secondaryLabel: null,
+    restrictedNote: 'Provisioned by Institution Administrators',
     icon: UserCheck,
-    audience: 'Faculty Advisors, Thesis Supervisors & Co-Supervisors',
-    summary:
-      'Monitor student cohorts at a glance, spot stalled projects early, and deliver structured document reviews without losing feedback in email threads.',
-    capabilities: [
-      'View all assigned students, current milestone completion, and missed check-ins',
-      'Review submitted documents and approve chapters or request targeted revisions',
-      'Read weekly journals and respond with timestamped guidance and action items',
-      'Identify students requiring attention based on overdue tasks or inactive journals',
+    accentBar: 'border-t-[#0D9488]',
+    iconStyle: 'border-teal-500/25 bg-teal-500/12 text-[#14B8A6]',
+    badgeColor: 'text-[#14B8A6]',
+    ctaStyle: 'bg-[#0D9488] hover:bg-[#0F766E] text-white',
+    description:
+      'Oversee assigned student cohorts, review submitted chapters, approve milestones, and host structured office hours.',
+    highlights: [
+      'Spot stalled student projects and overdue journals early',
+      'Approve chapter drafts or request targeted revisions',
+      'Publish weekly office hours and review bookings',
     ],
-    accessRule: 'Granted only via institution administrator approval or a verified faculty invitation.',
   },
-  institution_admin: {
+  {
     id: 'institution_admin',
-    label: 'Institution Admin',
-    shortLabel: 'Institution',
+    badge: '03 · INSTITUTION ADMIN',
+    title: 'Institution Administrator',
+    audience: 'Department Coordinators & Academic Governance',
+    loginPath: '/login/admin',
+    ctaLabel: 'Sign in as Institution Admin',
+    secondaryPath: null,
+    secondaryLabel: null,
+    restrictedNote: 'Restricted to authorized coordinators',
     icon: Building2,
-    audience: 'Department Heads, Coordinators & Academic Registrars',
-    summary:
-      'Operate an isolated institutional workspace with full control over departments, academic sessions, membership approvals, and project assignments.',
-    capabilities: [
-      'Configure departments, degree programmes, and active academic sessions',
-      'Verify and approve pending student and supervisor membership requests',
-      'Invite faculty supervisors and assign them to student academic projects',
-      'Monitor institution-wide completion rates and export cohort progress reports',
+    accentBar: 'border-t-[#6366F1]',
+    iconStyle: 'border-violet-500/25 bg-violet-500/12 text-[#8B5CF6]',
+    badgeColor: 'text-[#8B5CF6]',
+    ctaStyle: 'bg-[#6366F1] hover:bg-[#4F46E5] text-white',
+    description:
+      'Configure Grace Polytechnic departments and sessions, verify student registrations, and provision supervisor accounts.',
+    highlights: [
+      'Manage Schools, Departments, ND/HND programmes & sessions',
+      'Approve student accounts and create supervisor roles',
+      'Assign supervisors to projects and export audit reports',
     ],
-    accessRule: 'Strictly scoped to a single institution; cannot access other institutions’ records.',
   },
-  platform_admin: {
-    id: 'platform_admin',
-    label: 'Platform Admin',
-    shortLabel: 'Platform',
-    icon: Shield,
-    audience: 'Platform Governance & Verification Operators',
-    summary:
-      'Review incoming university applications, enforce platform-wide trust standards, and audit privileged administrative actions across tenants.',
-    capabilities: [
-      'Review and approve or reject new institution registration applications',
-      'Manage registered institutional account statuses and operational compliance',
-      'Manage platform administrator privileges through a strict, auditable workflow',
-      'Monitor platform-wide activity summaries and critical governance events',
-    ],
-    accessRule: 'Completely separated from institutional roles; never assigned during public signup.',
-  },
-};
+];
 
-const PORTAL_KEYS = ['student', 'supervisor', 'institution_admin', 'platform_admin'];
+const SYSTEM_STEPS = [
+  {
+    step: '01',
+    icon: Building2,
+    title: 'Academic Structure & Sessions',
+    description:
+      'Institution Administrators configure Grace Polytechnic schools, departments, ND/HND programmes, and active academic sessions.',
+  },
+  {
+    step: '02',
+    icon: UserPlus,
+    title: 'Verified Student & Supervisor Onboarding',
+    description:
+      'Students register with their programme details for approval while Institution Administrators provision and assign supervisors.',
+  },
+  {
+    step: '03',
+    icon: FolderKanban,
+    title: 'Milestones, Chapters & Office Hours',
+    description:
+      'Students execute project tasks, submit chapter drafts, log weekly journals, and book supervisor consultations.',
+  },
+  {
+    step: '04',
+    icon: ClipboardCheck,
+    title: 'Structured Reviews & Defence Readiness',
+    description:
+      'Supervisors track cohort progress, issue feedback, and sign off on completed milestones for departmental reporting.',
+  },
+];
 
 export default function HomePage() {
-  const [activePortal, setActivePortal] = useState('student');
-  const currentPortal = PORTAL_DETAILS[activePortal];
-  const PortalIcon = currentPortal.icon;
-
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-[#172554]">
+    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] transition-colors duration-200">
       <PublicHeader />
 
       <main className="flex-1">
         <HeroSection />
-        <FeaturesSection />
 
-        {/* Four Portals Interactive Architecture Section */}
-        <section id="portals" className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-18 lg:px-8">
-          <div className="max-w-2xl space-y-3 mb-8">
-            <p className="text-xs font-semibold tracking-wide text-[#2563EB]">
-              Four Functional Portals
+        {/* Three Dedicated Portal Selection Cards */}
+        <section
+          id="portals"
+          className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-18 lg:px-8"
+        >
+          <FadeInSection className="max-w-2xl space-y-3 mb-10">
+            <p className="font-mono text-xs font-semibold tracking-wider text-[var(--accent-primary)]">
+              THREE DEDICATED PORTALS
             </p>
-            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-[#172554] text-balance">
-              One platform, four role-specific workflows.
+            <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-[var(--text-primary)] text-balance">
+              Select your Grace Polytechnic portal to sign in.
             </h2>
-            <p className="text-sm sm:text-base text-[#64748B] leading-relaxed">
-              A single user account can hold different approved roles across institutions—for example, supervising at one university while administrating another—with strict separation of duties.
+            <p className="text-sm sm:text-base text-[var(--text-muted)] leading-relaxed">
+              Every user enters through their designated portal with strict role-based access control across Student, Supervisor, and Institution Administrator workspaces.
             </p>
-          </div>
+          </FadeInSection>
 
-          {/* Interactive Segmented Control (2x2 on mobile, 4-col on sm+) */}
-          <div
-            role="tablist"
-            aria-label="Select portal preview"
-            className="grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5 sm:inline-grid sm:grid-cols-4 mb-6 w-full sm:w-auto"
-          >
-            {PORTAL_KEYS.map((key) => {
-              const item = PORTAL_DETAILS[key];
-              const isActive = activePortal === key;
+          <StaggerGroup className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {PORTAL_CARDS.map((card) => {
+              const Icon = card.icon;
               return (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => setActivePortal(key)}
-                  className={`min-h-[44px] rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                    isActive
-                      ? 'bg-[#172554] text-white shadow-xs'
-                      : 'text-[#64748B] hover:text-[#172554] hover:bg-white/60'
-                  }`}
-                >
-                  <span className="sm:hidden">{item.shortLabel}</span>
-                  <span className="hidden sm:inline">{item.label}</span>
-                </button>
+                <StaggerItem key={card.id}>
+                  <PerspectiveCard maxTilt={3.5} hoverLift={-4} className="h-full">
+                    <div
+                      className={`flex h-full flex-col justify-between rounded-2xl spt-surface border-t-4 ${card.accentBar} p-6 space-y-6`}
+                    >
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`font-mono text-xs font-semibold ${card.badgeColor}`}>
+                            {card.badge}
+                          </span>
+                          <div
+                            className={`flex h-10 w-10 items-center justify-center rounded-xl border ${card.iconStyle}`}
+                          >
+                            <Icon className="h-5 w-5" aria-hidden="true" />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <h3 className="font-display text-xl font-bold text-[var(--text-primary)]">
+                            {card.title}
+                          </h3>
+                          <p className="text-xs font-medium text-[var(--text-muted)]">
+                            {card.audience}
+                          </p>
+                        </div>
+
+                        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                          {card.description}
+                        </p>
+
+                        <ul className="space-y-2.5 border-t border-[var(--border-subtle)] pt-4">
+                          {card.highlights.map((point, idx) => (
+                            <li
+                              key={idx}
+                              className="flex items-start gap-2.5 text-xs sm:text-sm text-[var(--text-muted)]"
+                            >
+                              <CheckCircle2
+                                className={`h-4 w-4 mt-0.5 shrink-0 ${card.badgeColor}`}
+                                aria-hidden="true"
+                              />
+                              <span className="leading-relaxed">{point}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <div className="space-y-2.5 pt-2">
+                        <Link
+                          to={card.loginPath}
+                          className={`inline-flex min-h-[46px] w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors shadow-xs ${card.ctaStyle}`}
+                        >
+                          <span>{card.ctaLabel}</span>
+                          <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                        </Link>
+
+                        {card.secondaryPath ? (
+                          <Link
+                            to={card.secondaryPath}
+                            className="inline-flex min-h-[38px] w-full items-center justify-center rounded-lg text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                          >
+                            {card.secondaryLabel}
+                          </Link>
+                        ) : (
+                          <div className="flex min-h-[38px] items-center justify-center gap-1.5 text-xs text-[var(--text-muted)]">
+                            <LockKeyhole className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            <span>
+                              {card.restrictedNote || 'Restricted to authorized coordinators'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </PerspectiveCard>
+                </StaggerItem>
               );
             })}
-          </div>
+          </StaggerGroup>
+        </section>
 
-          <div className="grid grid-cols-1 gap-8 rounded-2xl border border-slate-200 bg-white p-5 sm:p-8 lg:grid-cols-12 lg:items-center">
-            <div className="lg:col-span-7 space-y-5">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2.5 text-[#2563EB]">
-                  <PortalIcon className="h-5 w-5 shrink-0" aria-hidden="true" />
-                  <span className="text-xs font-semibold">{currentPortal.audience}</span>
+        <FeaturesSection />
+
+        {/* How the System Works */}
+        <section
+          id="workflows"
+          className="border-t border-[var(--border-subtle)] bg-[var(--bg-canvas)]"
+        >
+          <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-18 lg:px-8">
+            <FadeInSection className="max-w-2xl space-y-3 mb-10">
+              <p className="font-mono text-xs font-semibold tracking-wider text-[var(--accent-primary)]">
+                HOW THE SYSTEM WORKS
+              </p>
+              <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-[var(--text-primary)] text-balance">
+                End-to-end project supervision from onboarding to final clearance.
+              </h2>
+              <p className="text-sm sm:text-base text-[var(--text-muted)] leading-relaxed">
+                Every stage connects student deliverables, supervisor feedback, and departmental governance inside {GRACE_POLYTECHNIC_BRAND.institutionName}.
+              </p>
+            </FadeInSection>
+
+            <StaggerGroup className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              {SYSTEM_STEPS.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <StaggerItem key={item.step}>
+                    <div className="flex h-full flex-col justify-between rounded-2xl spt-surface p-6 space-y-4">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-xs font-semibold text-[var(--accent-primary)] tabular-nums">
+                            STEP {item.step}
+                          </span>
+                          <Icon className="h-4 w-4 text-[var(--text-muted)]" aria-hidden="true" />
+                        </div>
+                        <h3 className="font-display text-base sm:text-lg font-bold text-[var(--text-primary)]">
+                          {item.title}
+                        </h3>
+                        <p className="text-sm text-[var(--text-muted)] leading-relaxed">
+                          {item.description}
+                        </p>
+                      </div>
+                    </div>
+                  </StaggerItem>
+                );
+              })}
+            </StaggerGroup>
+
+            {/* Provisional Catalogue & Schools Strip */}
+            <div className="mt-10 rounded-2xl spt-surface p-6 space-y-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-[var(--border-subtle)] pb-4">
+                <div>
+                  <p className="font-mono text-xs font-semibold text-[var(--accent-primary)]">
+                    ACADEMIC SCHOOLS · PROVISIONAL REFERENCE
+                  </p>
+                  <h3 className="font-display text-lg font-bold text-[var(--text-primary)] mt-1">
+                    Aligned with {GRACE_POLYTECHNIC_BRAND.institutionName} Academic Structure
+                  </h3>
                 </div>
-                <h3 className="font-display text-xl sm:text-2xl font-bold text-[#172554]">
-                  {currentPortal.label}
-                </h3>
-                <p className="text-sm sm:text-base text-[#64748B] leading-relaxed">
-                  {currentPortal.summary}
-                </p>
-              </div>
-
-              <ul className="space-y-3 border-t border-slate-100 pt-4">
-                {currentPortal.capabilities.map((capability, idx) => (
-                  <li key={idx} className="flex items-start gap-3 text-sm text-[#172554]">
-                    <CheckCircle2
-                      className="h-4 w-4 mt-0.5 shrink-0 text-[#2563EB]"
-                      aria-hidden="true"
-                    />
-                    <span className="leading-relaxed">{capability}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-[#F8FAFC] p-3.5 text-xs text-[#64748B]">
-                <LockKeyhole className="h-4 w-4 mt-0.5 shrink-0 text-[#172554]" aria-hidden="true" />
-                <span>
-                  <strong className="font-semibold text-[#172554]">Access Control: </strong>
-                  {currentPortal.accessRule}
+                <span className="font-mono text-xs text-[var(--text-muted)]">
+                  {GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.schools.length} Schools ·{' '}
+                  {GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.departments.length} Departments
                 </span>
               </div>
-            </div>
 
-            <div className="lg:col-span-5">
-              <ImageWithFallback
-                src="/src/assets/images/supervisor_review_desk_1794715034493.jpg"
-                alt="Academic supervisor desk with thesis manuscript pages, laptop review screen, and annotated tablet"
-                caption="Structured academic review workflow designed for clarity on both mobile and desktop screens."
-              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.schools.map((school) => (
+                  <div
+                    key={school.id}
+                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 space-y-1"
+                  >
+                    <p className="font-display text-sm font-bold text-[var(--text-primary)]">
+                      {school.name}
+                    </p>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      ND &amp; HND Project Supervision Tracks
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                {GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.verificationNote}
+              </p>
             </div>
           </div>
         </section>
 
-        {/* Multi-Institution & Approval Workflow Section */}
-        <section id="workflows" className="border-t border-slate-200 bg-white">
-          <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-18 lg:px-8">
-            <div className="max-w-2xl space-y-3 mb-10">
-              <p className="text-xs font-semibold tracking-wide text-[#2563EB]">
-                Registration &amp; Approval Workflows
-              </p>
-              <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-[#172554] text-balance">
-                Authorised onboarding from institution verification to project submission.
-              </h2>
-              <p className="text-sm sm:text-base text-[#64748B] leading-relaxed">
-                Every membership and administrative role follows a verified approval chain so institutions maintain complete control over academic data.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-              <div className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-[#F8FAFC] p-6 space-y-5">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs font-mono text-[#64748B] tabular-nums">
-                    <span>01. INSTITUTION</span>
-                    <Building2 className="h-4 w-4 text-[#2563EB]" aria-hidden="true" />
-                  </div>
-                  <h3 className="font-display text-lg font-bold text-[#172554]">
-                    Submit Institution Application
-                  </h3>
-                  <p className="text-sm text-[#64748B] leading-relaxed">
-                    Universities and colleges apply openly with official domain details. Applications remain pending until verified and approved by a Platform Administrator.
-                  </p>
-                </div>
-                <Link
-                  to="/register/institution"
-                  className="inline-flex min-h-[40px] items-center gap-1.5 text-sm font-semibold text-[#2563EB] hover:text-[#1D4ED8]"
-                >
-                  <span>Apply for institution</span>
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              </div>
-
-              <div className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-[#F8FAFC] p-6 space-y-5">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs font-mono text-[#64748B] tabular-nums">
-                    <span>02. MEMBERSHIP</span>
-                    <FolderKanban className="h-4 w-4 text-[#2563EB]" aria-hidden="true" />
-                  </div>
-                  <h3 className="font-display text-lg font-bold text-[#172554]">
-                    Approve Students &amp; Supervisors
-                  </h3>
-                  <p className="text-sm text-[#64748B] leading-relaxed">
-                    Students select their institution and academic programme, while supervisors request membership or redeem an administrator invitation. All pending requests await institutional approval.
-                  </p>
-                </div>
-                <Link
-                  to="/register/student"
-                  className="inline-flex min-h-[40px] items-center gap-1.5 text-sm font-semibold text-[#2563EB] hover:text-[#1D4ED8]"
-                >
-                  <span>Register as student</span>
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              </div>
-
-              <div className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-[#F8FAFC] p-6 space-y-5">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs font-mono text-[#64748B] tabular-nums">
-                    <span>03. SUPERVISION</span>
-                    <FileCheck2 className="h-4 w-4 text-[#2563EB]" aria-hidden="true" />
-                  </div>
-                  <h3 className="font-display text-lg font-bold text-[#172554]">
-                    Track Progress &amp; Reviews
-                  </h3>
-                  <p className="text-sm text-[#64748B] leading-relaxed">
-                    Once assigned, students manage milestones, weekly journals, and chapter submissions while supervisors review work, request revisions, and track progress.
-                  </p>
-                </div>
-                <Link
-                  to="/register/supervisor"
-                  className="inline-flex min-h-[40px] items-center gap-1.5 text-sm font-semibold text-[#2563EB] hover:text-[#1D4ED8]"
-                >
-                  <span>Register as supervisor</span>
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Bottom Onboarding CTA Band */}
-        <section className="border-t border-slate-200 bg-[#172554] text-white">
+        {/* Bottom Onboarding & Portal CTA Band */}
+        <section className="border-t border-[var(--border-subtle)] bg-[#0E172D] text-white">
           <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 sm:py-14 lg:px-8">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div className="space-y-2 max-w-2xl">
+                <p className="font-mono text-xs font-semibold text-blue-300">
+                  GET STARTED · {GRACE_POLYTECHNIC_BRAND.institutionName.toUpperCase()}
+                </p>
                 <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-balance">
-                  Ready to set up your academic account or institutional workspace?
+                  Ready to access your project workspace?
                 </h2>
                 <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
-                  Choose the registration path that matches your role, or sign in if your institution has already provisioned your membership.
+                  Sign in directly through your Student, Supervisor, or Institution Administrator portal, or register as a new student candidate.
                 </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 shrink-0">
+              <div className="flex flex-col sm:flex-row flex-wrap gap-3 shrink-0">
                 <Link
-                  to="/register"
-                  className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-6 py-3 text-sm font-semibold text-white hover:bg-[#1D4ED8] transition-colors whitespace-nowrap"
+                  to="/login/student"
+                  className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 py-3 text-sm font-semibold text-white hover:bg-[#1D4ED8] transition-colors whitespace-nowrap"
                 >
-                  <span>Open registration hub</span>
+                  <span>Student sign in</span>
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
                 <Link
-                  to="/login"
-                  className="inline-flex min-h-[48px] items-center justify-center rounded-lg border border-white/25 bg-white/10 px-6 py-3 text-sm font-medium text-white hover:bg-white/15 transition-colors whitespace-nowrap"
+                  to="/login/supervisor"
+                  className="inline-flex min-h-[48px] items-center justify-center rounded-xl border border-teal-400/40 bg-teal-500/15 px-5 py-3 text-sm font-medium text-teal-100 hover:bg-teal-500/25 transition-colors whitespace-nowrap"
                 >
-                  Sign in
+                  Supervisor sign in
+                </Link>
+                <Link
+                  to="/login/admin"
+                  className="inline-flex min-h-[48px] items-center justify-center rounded-xl border border-white/25 bg-white/10 px-5 py-3 text-sm font-medium text-white hover:bg-white/15 transition-colors whitespace-nowrap"
+                >
+                  Admin sign in
                 </Link>
               </div>
             </div>

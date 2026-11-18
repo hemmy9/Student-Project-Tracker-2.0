@@ -1,20 +1,37 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Student Project Tracker — Academic Project Progress &amp; Supervision Platform</title>
+    <title>Grace Polytechnic · Student Project Tracker</title>
     <meta
       name="description"
-      content="Design and Implementation of a Web-Based Student Project Progress Tracking System for multi-institution academic supervision, milestone tracking, and document review."
+      content="Grace Polytechnic Student Project Tracker — Official academic project supervision, milestone tracking, progress journals, and document review portal."
     />
-    <meta property="og:title" content="Student Project Tracker" />
+    <meta property="og:title" content="Grace Polytechnic · Student Project Tracker" />
     <meta
       property="og:description"
-      content="Structured academic project tracking, supervisor review workflows, and multi-institution governance."
+      content="Structured academic project progress tracking, supervisor reviews, and institutional oversight for Grace Polytechnic."
     />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function () {
+        try {
+          var saved = window.localStorage.getItem('spt_theme');
+          var root = document.documentElement;
+          if (saved === 'light') {
+            root.classList.remove('dark');
+            root.classList.add('light');
+            root.style.colorScheme = 'light';
+          } else {
+            root.classList.add('dark');
+            root.classList.remove('light');
+            root.style.colorScheme = 'dark';
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -22,9 +39,8 @@
       rel="stylesheet"
     />
   </head>
-  <body class="bg-[#F8FAFC] text-[#172554] antialiased selection:bg-[#2563EB]/15 selection:text-[#172554]">
+  <body class="bg-[var(--bg-canvas)] text-[var(--text-primary)] antialiased selection:bg-[#2563EB]/25 selection:text-[var(--text-primary)] transition-colors duration-200">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
-

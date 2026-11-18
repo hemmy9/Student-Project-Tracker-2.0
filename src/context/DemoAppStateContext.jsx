@@ -1,46 +1,322 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import {
+  GRACE_POLYTECHNIC_BRAND,
+  GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE,
+} from '../config/gracePolytechnic';
+import { getCurrentIsoDate, getCurrentLocalTimestamp } from '../utils/dateHelper';
+import {
+  buildNotificationPreferenceKey,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  evaluateDeadlineReminders,
+  evaluateOpenReminderCandidateKeys,
+  reconcileActivityPreferencesState,
+  reconcileDeadlineRemindersState,
+  resolveNotificationPreferences,
+  sanitizeNotificationPreferences,
+} from '../utils/deadlineReminderEngine';
 
 const STORAGE_KEY = 'spt_stage3_demo_state_v1';
+
+export const GRACE_INSTITUTION_NAME = GRACE_POLYTECHNIC_BRAND.institutionName;
+const LEGACY_WESTBRIDGE_NAME = 'University of Westbridge';
+
+const LEGACY_INSTITUTION_ALIASES = {
+  [LEGACY_WESTBRIDGE_NAME]: GRACE_INSTITUTION_NAME,
+};
+
+const SCHOOL_NAME_BY_ID = Object.fromEntries(
+  GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.schools.map((s) => [s.id, s.name])
+);
+const LEVEL_CODE_BY_ID = Object.fromEntries(
+  GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.qualificationLevels.map((l) => [l.id, l.code])
+);
+const MODE_LABEL_BY_ID = Object.fromEntries(
+  GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.studyModes.map((m) => [m.id, m.label])
+);
+
+const DEMO_DEPT_COUNTS = {
+  'dept-acc': { students: 42, supervisors: 6 },
+  'dept-bam': { students: 56, supervisors: 8 },
+  'dept-bf': { students: 28, supervisors: 4 },
+  'dept-cet': { students: 38, supervisors: 6 },
+  'dept-eee': { students: 34, supervisors: 5 },
+  'dept-csc': { students: 64, supervisors: 9 },
+  'dept-otm': { students: 30, supervisors: 5 },
+  'dept-sta': { students: 22, supervisors: 4 },
+};
+
+export function buildGraceCatalogueDepartments() {
+  return GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.departments.map((dept) => {
+    const linkedProgrammes = GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.programmes.filter(
+      (p) => p.departmentId === dept.id
+    );
+    const levelIds = [...new Set(linkedProgrammes.flatMap((p) => p.qualificationLevelIds || []))];
+    const modeIds = [...new Set(linkedProgrammes.flatMap((p) => p.studyModeIds || []))];
+    const counts = DEMO_DEPT_COUNTS[dept.id] || { students: 18, supervisors: 3 };
+
+    return {
+      id: dept.id,
+      code: dept.code,
+      schoolId: dept.schoolId,
+      schoolName: SCHOOL_NAME_BY_ID[dept.schoolId] || 'Grace Polytechnic School',
+      name: dept.name,
+      programmes: linkedProgrammes.map((p) => p.name),
+      qualificationLevels: levelIds.map((id) => LEVEL_CODE_BY_ID[id] || id),
+      studyModes: modeIds.map((id) => MODE_LABEL_BY_ID[id] || id),
+      students: counts.students,
+      supervisors: counts.supervisors,
+      provisional: Boolean(dept.provisional),
+    };
+  });
+}
+
+export function buildGraceCatalogueSessions() {
+  return GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.academicSessions.map((ses) => ({
+    id: ses.id,
+    name: ses.label,
+    active: Boolean(ses.isActive),
+    provisional: Boolean(ses.provisional),
+  }));
+}
+
+export function canonicalizeInstitutionName(institutionName) {
+  if (typeof institutionName !== 'string') return '';
+  const trimmed = institutionName.trim();
+  if (!trimmed) return '';
+  return LEGACY_INSTITUTION_ALIASES[trimmed] || trimmed;
+}
+
+export function resolveInstitutionKey(
+  collection,
+  institutionName,
+  { allowGraceFallback = false } = {}
+) {
+  const trimmed = typeof institutionName === 'string' ? institutionName.trim() : '';
+  if (!trimmed) {
+    if (allowGraceFallback && collection && Object.prototype.hasOwnProperty.call(collection, GRACE_INSTITUTION_NAME)) {
+      return GRACE_INSTITUTION_NAME;
+    }
+    return '';
+  }
+
+  const canonical = canonicalizeInstitutionName(trimmed);
+  if (collection && Object.prototype.hasOwnProperty.call(collection, canonical)) {
+    return canonical;
+  }
+  if (collection && Object.prototype.hasOwnProperty.call(collection, trimmed)) {
+    return trimmed;
+  }
+  return '';
+}
+
+export function resolveWorkspaceInstitution(activeMembership, session = null) {
+  const raw = typeof activeMembership?.institutionName === 'string'
+    ? activeMembership.institutionName.trim()
+    : '';
+  if (raw) {
+    return canonicalizeInstitutionName(raw);
+  }
+  const email = (session?.email || '').toLowerCase();
+  if (
+    activeMembership &&
+    (email.endsWith(`@${GRACE_POLYTECHNIC_BRAND.officialDomain}`) ||
+      email.endsWith('@westbridge.edu') ||
+      ['student', 'supervisor', 'institution_admin'].includes(activeMembership.roleKey))
+  ) {
+    return GRACE_INSTITUTION_NAME;
+  }
+  return '';
+}
+
+export const ALLOWED_SHARED_PROFILE_FIELDS = [
+  'phone',
+  'bio',
+  'emailNotifications',
+  'preferredDisplayTitle',
+  'alternativeContact',
+];
+
+export const ALLOWED_ROLE_SCOPED_PROFILE_FIELDS = [
+  'roleNote',
+  'researchFocus',
+  'officeLocation',
+  'consultationLink',
+  'availabilityNote',
+];
+
+export const PROTECTED_SYSTEM_PROFILE_FIELDS = [
+  'id',
+  'userId',
+  'fullName',
+  'email',
+  'roleKey',
+  'roleLabel',
+  'institution',
+  'institutionName',
+  'department',
+  'programme',
+  'studentCode',
+  'scopeLabel',
+  'status',
+  'memberships',
+  'isDemoPreview',
+];
+
+export function buildProfileScopeKey(roleKey, institutionName) {
+  const cleanRole = typeof roleKey === 'string' ? roleKey.trim() : '';
+  const cleanInst = canonicalizeInstitutionName(institutionName || '');
+  if (!cleanRole || cleanRole === 'platform_admin' || !cleanInst) return '';
+  return `${cleanRole}::${cleanInst}`;
+}
+
+function sanitizeFieldSet(rawObj, allowedFields) {
+  if (!rawObj || typeof rawObj !== 'object') return {};
+  const result = {};
+  for (const key of allowedFields) {
+    if (!Object.prototype.hasOwnProperty.call(rawObj, key)) continue;
+    const val = rawObj[key];
+    if (key === 'emailNotifications') {
+      result[key] = Boolean(val);
+    } else if (val !== undefined && val !== null) {
+      result[key] = String(val).slice(0, 500);
+    }
+  }
+  return result;
+}
+
+export function sanitizeProfileUpdates(updates = {}) {
+  return sanitizeFieldSet(updates, ALLOWED_SHARED_PROFILE_FIELDS);
+}
+
+export function sanitizeRoleScopedProfileUpdates(updates = {}) {
+  return sanitizeFieldSet(updates, ALLOWED_ROLE_SCOPED_PROFILE_FIELDS);
+}
+
+function normalizeScopeKey(rawKey) {
+  if (typeof rawKey !== 'string') return '';
+  const sepIdx = rawKey.indexOf('::');
+  if (sepIdx <= 0) return '';
+  const rolePart = rawKey.slice(0, sepIdx).trim();
+  const instPart = rawKey.slice(sepIdx + 2).trim();
+  return buildProfileScopeKey(rolePart, instPart);
+}
+
+function migrateUserProfiles(savedProfiles, defaultProfiles) {
+  const base = defaultProfiles || {};
+  const result = {};
+
+  for (const [email, defProfile] of Object.entries(base)) {
+    result[email] = {
+      ...sanitizeProfileUpdates(defProfile),
+      roleProfiles: {},
+    };
+  }
+
+  if (!savedProfiles || typeof savedProfiles !== 'object') {
+    return result;
+  }
+
+  for (const [email, rawEntry] of Object.entries(savedProfiles)) {
+    if (!email || !rawEntry || typeof rawEntry !== 'object') continue;
+    const existingBase = result[email] || { roleProfiles: {} };
+    const mergedShared = {
+      ...existingBase,
+      ...sanitizeProfileUpdates(rawEntry),
+    };
+
+    const migratedRoleProfiles = { ...(existingBase.roleProfiles || {}) };
+    if (rawEntry.roleProfiles && typeof rawEntry.roleProfiles === 'object') {
+      for (const [rawScopeKey, rawScopedVal] of Object.entries(rawEntry.roleProfiles)) {
+        const normalizedKey = normalizeScopeKey(rawScopeKey);
+        if (!normalizedKey) continue;
+        const sanitizedScoped = sanitizeRoleScopedProfileUpdates(rawScopedVal);
+        const isLegacyWestbridgeKey = rawScopeKey.includes(`::${LEGACY_WESTBRIDGE_NAME}`);
+        if (isLegacyWestbridgeKey && Object.prototype.hasOwnProperty.call(rawEntry.roleProfiles, normalizedKey)) {
+          continue;
+        }
+        migratedRoleProfiles[normalizedKey] = {
+          ...(migratedRoleProfiles[normalizedKey] || {}),
+          ...sanitizedScoped,
+        };
+      }
+    }
+
+    result[email] = {
+      ...mergedShared,
+      roleProfiles: migratedRoleProfiles,
+    };
+  }
+
+  return result;
+}
+
+export function getScopedUserProfile(userProfiles, email, roleKey = '', institutionName = '') {
+  const cleanEmail = typeof email === 'string' ? email.trim() : '';
+  const entry = (cleanEmail && userProfiles?.[cleanEmail]) || {};
+  const shared = sanitizeProfileUpdates(entry);
+  const scopeKey = buildProfileScopeKey(roleKey, institutionName);
+  const scoped =
+    scopeKey && entry.roleProfiles && entry.roleProfiles[scopeKey]
+      ? sanitizeRoleScopedProfileUpdates(entry.roleProfiles[scopeKey])
+      : {};
+
+  return {
+    phone: '',
+    bio: '',
+    emailNotifications: true,
+    preferredDisplayTitle: '',
+    alternativeContact: '',
+    roleNote: '',
+    researchFocus: '',
+    officeLocation: '',
+    consultationLink: '',
+    availabilityNote: '',
+    ...shared,
+    ...scoped,
+    scopeKey,
+  };
+}
 
 const INITIAL_STATE = {
   userProfiles: {
     'student.demo@westbridge.edu': {
-      phone: '+44 7700 900418',
-      bio: 'Final-year Software Engineering student researching edge flood telemetry.',
+      phone: 'Demo Profile Placeholder',
+      bio: 'Final-year Computer Science demo student researching flood telemetry.',
       emailNotifications: true,
     },
     'supervisor.demo@westbridge.edu': {
-      phone: '+44 7700 900102',
-      bio: 'Senior Lecturer supervising embedded systems and distributed architectures.',
+      phone: 'Demo Profile Placeholder',
+      bio: 'Demo faculty supervisor overseeing embedded systems and computing projects.',
       emailNotifications: true,
     },
     'admin.demo@westbridge.edu': {
-      phone: '+44 7700 900880',
-      bio: 'Academic Projects Coordinator at University of Westbridge.',
+      phone: 'Demo Profile Placeholder',
+      bio: `Demo Academic Projects Coordinator for ${GRACE_INSTITUTION_NAME}.`,
       emailNotifications: true,
     },
     'platform.demo@projecttracker.app': {
-      phone: '+234 800 555 0190',
-      bio: 'Platform Governance & Verification Lead.',
+      phone: 'Demo Profile Placeholder',
+      bio: 'Retired Platform Governance demo operator.',
       emailNotifications: true,
     },
     'multi.demo@westbridge.edu': {
-      phone: '+233 24 555 0144',
-      bio: 'Visiting Faculty & Doctoral Researcher across partner institutions.',
+      phone: 'Demo Profile Placeholder',
+      bio: 'Multi-role demonstration account across isolated workspace scopes.',
       emailNotifications: true,
     },
   },
+  notificationPreferences: {},
   projectsByInstitution: {
-    'University of Westbridge': {
-      id: 'proj-uwb-1',
-      code: 'UWB-CS-2026-014',
+    [GRACE_INSTITUTION_NAME]: {
+      id: 'proj-gp-1',
+      code: 'GP-CSC-2026-014',
       title: 'Adaptive Flood Early-Warning Telemetry Network Using Edge Sensors',
       studentName: 'Kwame Boateng',
       studentEmail: 'student.demo@westbridge.edu',
       supervisorName: 'Dr. Samuel Osei',
       supervisorEmail: 'supervisor.demo@westbridge.edu',
-      department: 'Department of Computer Science',
-      programme: 'B.Sc. Software Engineering',
+      department: 'Computer Science',
+      programme: 'HND Computer Science (Full-Time · Demo)',
       academicSession: '2025/2026 Academic Session',
       nextDeadline: '2026-11-28',
       milestones: [
@@ -369,8 +645,8 @@ const INITIAL_STATE = {
     {
       id: 'stu-2',
       name: 'Amara Okafor',
-      studentCode: 'UWB-2026-0392',
-      programme: 'B.Sc. Computer Science',
+      studentCode: 'GP/CSC/2026/039',
+      programme: 'HND Computer Science (Demo)',
       projectTitle: 'Automated Timetable Conflict Solver Using Constraint Search',
       progress: 41,
       lastJournal: '2026-10-26',
@@ -380,8 +656,8 @@ const INITIAL_STATE = {
     {
       id: 'stu-3',
       name: 'Liam Gallagher',
-      studentCode: 'UWB-2026-0511',
-      programme: 'M.Sc. Artificial Intelligence',
+      studentCode: 'GP/CET/2026/051',
+      programme: 'HND Computer Engineering Technology (Demo)',
       projectTitle: 'Interpretable Medical Triage Classification on Edge Devices',
       progress: 82,
       lastJournal: '2026-11-12',
@@ -391,8 +667,8 @@ const INITIAL_STATE = {
     {
       id: 'stu-4',
       name: 'Zainab Bello',
-      studentCode: 'UWB-2026-0447',
-      programme: 'B.Sc. Software Engineering',
+      studentCode: 'GP/CSC/2026/044',
+      programme: 'ND Computer Science (Demo)',
       projectTitle: 'Offline-First Attendance Verification for Field Labs',
       progress: 34,
       lastJournal: '2026-10-29',
@@ -423,73 +699,51 @@ const INITIAL_STATE = {
   ],
 
   institutionsState: {
-    'University of Westbridge': {
+    [GRACE_INSTITUTION_NAME]: {
       info: {
-        name: 'University of Westbridge',
-        shortCode: 'UWB',
-        domain: 'westbridge.edu',
-        country: 'United Kingdom',
-        contactEmail: 'projects-office@westbridge.edu',
+        name: GRACE_POLYTECHNIC_BRAND.institutionName,
+        shortCode: 'GP',
+        domain: GRACE_POLYTECHNIC_BRAND.officialDomain,
+        website: GRACE_POLYTECHNIC_BRAND.website,
+        location: GRACE_POLYTECHNIC_BRAND.location,
+        country: 'Nigeria',
+        contactEmail: `demo-workspace@${GRACE_POLYTECHNIC_BRAND.officialDomain}`,
+        isProvisionalCatalogue: GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.isProvisional,
+        catalogueNote: GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.verificationNote,
       },
-      sessions: [
-        { id: 'ses-1', name: '2025/2026 Academic Session', active: true },
-        { id: 'ses-2', name: '2024/2025 Academic Session', active: false },
-      ],
-      departments: [
-        {
-          id: 'dept-cs',
-          name: 'Department of Computer Science',
-          programmes: [
-            'B.Sc. Software Engineering',
-            'B.Sc. Computer Science',
-            'M.Sc. Artificial Intelligence',
-          ],
-          students: 78,
-          supervisors: 12,
-        },
-        {
-          id: 'dept-ee',
-          name: 'Department of Electrical & Electronic Engineering',
-          programmes: ['B.Eng. Embedded Systems', 'M.Eng. Power Systems'],
-          students: 41,
-          supervisors: 7,
-        },
-        {
-          id: 'dept-info',
-          name: 'School of Information Systems',
-          programmes: ['B.Sc. Information Technology', 'M.Sc. Cybersecurity Governance'],
-          students: 23,
-          supervisors: 5,
-        },
-      ],
+      schools: GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.schools,
+      qualificationLevels: GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.qualificationLevels,
+      studyModes: GRACE_POLYTECHNIC_PROVISIONAL_CATALOGUE.studyModes,
+      sessions: buildGraceCatalogueSessions(),
+      departments: buildGraceCatalogueDepartments(),
       membershipRequests: [
         {
-          id: 'req-uwb-1',
-          name: 'Nadia Mensah',
-          email: 'n.mensah@westbridge.edu',
+          id: 'req-gp-1',
+          name: 'Nadia Mensah (Demo Request)',
+          email: 'n.mensah.demo@gracepolytechnic.edu.ng',
           role: 'Student',
-          department: 'Department of Computer Science',
-          identifier: 'UWB-2026-0612',
+          department: 'Computer Science',
+          identifier: 'GP/CSC/2026/061',
           requestedAt: '2026-11-13',
           status: 'Pending Approval',
         },
         {
-          id: 'req-uwb-2',
-          name: 'Dr. Henry Addo',
-          email: 'h.addo@westbridge.edu',
+          id: 'req-gp-2',
+          name: 'Dr. Henry Addo (Demo Request)',
+          email: 'h.addo.demo@gracepolytechnic.edu.ng',
           role: 'Supervisor',
-          department: 'School of Information Systems',
-          identifier: 'FAC-2190',
+          department: 'Computer Engineering Technology',
+          identifier: 'GP-FAC-2190 (Demo)',
           requestedAt: '2026-11-12',
           status: 'Pending Approval',
         },
         {
-          id: 'req-uwb-3',
-          name: 'Tunde Adeyemi',
-          email: 't.adeyemi@westbridge.edu',
+          id: 'req-gp-3',
+          name: 'Tunde Adeyemi (Demo Request)',
+          email: 't.adeyemi.demo@gracepolytechnic.edu.ng',
           role: 'Student',
-          department: 'Department of Electrical & Electronic Engineering',
-          identifier: 'UWB-2026-0639',
+          department: 'Electrical & Electronics Engineering Technology',
+          identifier: 'GP/EEE/2026/039',
           requestedAt: '2026-11-11',
           status: 'Pending Approval',
         },
@@ -497,43 +751,47 @@ const INITIAL_STATE = {
       invitations: [
         {
           id: 'inv-1',
-          email: 'dr.patel@westbridge.edu',
-          department: 'Department of Computer Science',
-          code: 'SPT-UWB-8831',
-          status: 'Pending Acceptance',
+          email: 'supervisor-invite.demo@gracepolytechnic.edu.ng',
+          department: 'Computer Science',
+          code: 'SPT-GP-8831',
+          status: 'Demo Invite (Stage D Verification Deferred)',
           createdAt: '2026-11-10',
         },
       ],
       projects: [
         {
           id: 'ip-1',
-          code: 'UWB-CS-2026-014',
+          code: 'GP-CSC-2026-014',
           title: 'Adaptive Flood Early-Warning Telemetry Network',
           studentName: 'Kwame Boateng',
-          department: 'Department of Computer Science',
+          department: 'Computer Science',
           supervisorName: 'Dr. Samuel Osei',
           progress: 68,
         },
         {
           id: 'ip-2',
-          code: 'UWB-CS-2026-029',
-          title: 'Blockchain-Free Tamper-Evident Academic Transcript Ledger',
-          studentName: 'Kofi Asante',
-          department: 'Department of Computer Science',
+          code: 'GP-CSC-2026-029',
+          title: 'Tamper-Evident Polytechnic Project Verification Archive',
+          studentName: 'Kofi Asante (Demo)',
+          department: 'Computer Science',
           supervisorName: 'Unassigned',
           progress: 10,
         },
         {
           id: 'ip-3',
-          code: 'UWB-EE-2026-011',
+          code: 'GP-EEE-2026-011',
           title: 'Smart Microgrid Load Balancing Controller',
-          studentName: 'Fatima Al-Mansoor',
-          department: 'Department of Electrical & Electronic Engineering',
+          studentName: 'Fatima Al-Mansoor (Demo)',
+          department: 'Electrical & Electronics Engineering Technology',
           supervisorName: 'Unassigned',
           progress: 15,
         },
       ],
-      verifiedSupervisors: ['Dr. Samuel Osei', 'Dr. Clara Hughes', 'Prof. Isaac Boateng'],
+      verifiedSupervisors: [
+        'Dr. Samuel Osei',
+        'Dr. Clara Hughes (Demo)',
+        'Prof. Isaac Boateng (Demo)',
+      ],
     },
     'St. Jude University of Applied Sciences': {
       info: {
@@ -711,6 +969,8 @@ const INITIAL_STATE = {
     {
       id: 'n-1',
       roleKey: 'student',
+      kind: 'activity',
+      category: 'Documents',
       title: 'Revision requested on Chapter 3 v2',
       body: 'Dr. Samuel Osei requested updates to Section 3.4 and your ER diagram.',
       time: '2 hours ago',
@@ -720,6 +980,8 @@ const INITIAL_STATE = {
     {
       id: 'n-2',
       roleKey: 'student',
+      kind: 'activity',
+      category: 'Journals',
       title: 'Week 8 Journal Reviewed',
       body: 'Your supervisor left feedback on your Week 8 progress journal.',
       time: '1 day ago',
@@ -729,6 +991,8 @@ const INITIAL_STATE = {
     {
       id: 'n-3',
       roleKey: 'supervisor',
+      kind: 'activity',
+      category: 'Documents',
       title: 'New chapter uploaded for review',
       body: 'Liam Gallagher uploaded Chapter 5: Experimental Results & Bias Audit (v1).',
       time: '3 hours ago',
@@ -738,6 +1002,8 @@ const INITIAL_STATE = {
     {
       id: 'n-4',
       roleKey: 'supervisor',
+      kind: 'system',
+      category: 'System',
       title: '2 students flagged for attention',
       body: 'Amara Okafor and Zainab Bello have overdue deliverables.',
       time: '1 day ago',
@@ -747,15 +1013,19 @@ const INITIAL_STATE = {
     {
       id: 'n-5',
       roleKey: 'institution_admin',
+      kind: 'activity',
+      category: 'Governance',
       title: 'Pending membership approvals',
       body: '3 new student and supervisor requests require institutional verification.',
       time: '5 hours ago',
       read: false,
-      targetPath: '/institution/approvals',
+      targetPath: '/admin/approvals',
     },
     {
       id: 'n-6',
       roleKey: 'platform_admin',
+      kind: 'system',
+      category: 'System',
       title: '2 institution applications awaiting review',
       body: 'Kestrel Polytechnic Institute and Harborview College submitted applications.',
       time: '4 hours ago',
@@ -768,7 +1038,7 @@ const INITIAL_STATE = {
     {
       id: 'af-1',
       roleScope: 'supervisor',
-      institutionName: 'University of Westbridge',
+      institutionName: GRACE_INSTITUTION_NAME,
       category: 'Documents',
       actor: 'Liam Gallagher',
       actorRole: 'Student',
@@ -780,31 +1050,31 @@ const INITIAL_STATE = {
     {
       id: 'af-2',
       roleScope: 'platform_admin',
-      institutionName: 'Platform-Wide Governance',
+      institutionName: 'Retired Scope',
       category: 'Governance',
       actor: 'Adaeze Nwosu',
       actorRole: 'Platform Admin',
-      action: 'Rejected unverified application domain',
-      detail: 'Blocked onboarding request from fast-degree-example.net.',
+      action: 'Archived historical onboarding log',
+      detail: 'Historical pre-cleanup log entry.',
       timestamp: '2026-11-13 14:22',
-      targetPath: '/platform/governance',
+      targetPath: '/portal-preview',
     },
     {
       id: 'af-3',
       roleScope: 'institution_admin',
-      institutionName: 'University of Westbridge',
+      institutionName: GRACE_INSTITUTION_NAME,
       category: 'Governance',
-      actor: 'Nadia Mensah',
+      actor: 'Nadia Mensah (Demo Request)',
       actorRole: 'Applicant',
       action: 'Submitted student membership verification request',
-      detail: 'Department of Computer Science · ID UWB-2026-0612.',
+      detail: 'Computer Science · ID GP/CSC/2026/061.',
       timestamp: '2026-11-13 09:15',
-      targetPath: '/institution/approvals',
+      targetPath: '/admin/approvals',
     },
     {
       id: 'af-4',
       roleScope: 'student',
-      institutionName: 'University of Westbridge',
+      institutionName: GRACE_INSTITUTION_NAME,
       category: 'Journals',
       actor: 'Dr. Samuel Osei',
       actorRole: 'Supervisor',
@@ -816,7 +1086,7 @@ const INITIAL_STATE = {
     {
       id: 'af-5',
       roleScope: 'student',
-      institutionName: 'University of Westbridge',
+      institutionName: GRACE_INSTITUTION_NAME,
       category: 'Messages',
       actor: 'Kwame Boateng',
       actorRole: 'Student',
@@ -828,7 +1098,7 @@ const INITIAL_STATE = {
     {
       id: 'af-6',
       roleScope: 'student',
-      institutionName: 'University of Westbridge',
+      institutionName: GRACE_INSTITUTION_NAME,
       category: 'Documents',
       actor: 'Kwame Boateng',
       actorRole: 'Student',
@@ -840,7 +1110,7 @@ const INITIAL_STATE = {
   ],
 
   officeHoursByInstitution: {
-    'University of Westbridge': {
+    [GRACE_INSTITUTION_NAME]: {
       availabilitySlots: [
         {
           id: 'oh-uwb-1',
@@ -851,7 +1121,7 @@ const INITIAL_STATE = {
           endTime: '12:00',
           slotMinutes: 30,
           mode: 'In-Person',
-          locationOrLink: 'Computer Science Block, Room 4.12',
+          locationOrLink: 'Computer Science Project Lab (Demo)',
           notes: 'Chapter architecture reviews and hardware prototype demos.',
           active: true,
         },
@@ -864,7 +1134,7 @@ const INITIAL_STATE = {
           endTime: '16:00',
           slotMinutes: 30,
           mode: 'Video Call',
-          locationOrLink: 'https://meet.westbridge.edu/dr-osei-office-hours',
+          locationOrLink: 'Virtual Supervision Room (Demo Link)',
           notes: 'Remote check-ins, milestone feedback clarifications, and thesis editing.',
           active: true,
         },
@@ -877,7 +1147,7 @@ const INITIAL_STATE = {
           endTime: '11:00',
           slotMinutes: 20,
           mode: 'Hybrid',
-          locationOrLink: 'CS Lab B or Virtual Room',
+          locationOrLink: 'CS Studio or Virtual Room (Demo)',
           notes: 'Quick blocker triage before weekend sprint.',
           active: true,
         },
@@ -893,7 +1163,7 @@ const INITIAL_STATE = {
           dayOfWeek: 'Tuesday',
           timeRange: '10:00 – 10:30',
           mode: 'In-Person',
-          locationOrLink: 'Computer Science Block, Room 4.12',
+          locationOrLink: 'Computer Science Project Lab (Demo)',
           topic: 'Walk through Chapter 3 Section 3.4 packet-loss fallback diagram',
           milestoneId: 'ms-3',
           status: 'Confirmed',
@@ -904,13 +1174,13 @@ const INITIAL_STATE = {
           id: 'bk-uwb-2',
           slotId: 'oh-uwb-2',
           studentName: 'Liam Gallagher',
-          studentEmail: 'l.gallagher@westbridge.edu',
+          studentEmail: 'l.gallagher.demo@gracepolytechnic.edu.ng',
           supervisorName: 'Dr. Samuel Osei',
           meetingDate: '2026-11-19',
           dayOfWeek: 'Thursday',
           timeRange: '14:30 – 15:00',
           mode: 'Video Call',
-          locationOrLink: 'https://meet.westbridge.edu/dr-osei-office-hours',
+          locationOrLink: 'Virtual Supervision Room (Demo Link)',
           topic: 'Discuss Chapter 5 Bias Audit metrics before defense prep',
           milestoneId: '',
           status: 'Pending',
@@ -940,6 +1210,314 @@ const INITIAL_STATE = {
   },
 };
 
+function normalizeLegacyTargetPath(targetPath) {
+  if (targetPath === '/institution') return '/admin';
+  if (typeof targetPath === 'string' && targetPath.startsWith('/institution/')) {
+    return `/admin/${targetPath.slice('/institution/'.length)}`;
+  }
+  return targetPath;
+}
+
+function mergeUniqueByIdOrName(existingList, defaultList) {
+  const existing = Array.isArray(existingList) ? existingList : [];
+  const defaults = Array.isArray(defaultList) ? defaultList : [];
+  const defaultsById = new Map(defaults.map((item) => [item.id, item]));
+  const defaultsByName = new Map(
+    defaults
+      .filter((item) => typeof item?.name === 'string')
+      .map((item) => [item.name.trim().toLowerCase(), item])
+  );
+
+  const seenIds = new Set();
+  const seenNames = new Set();
+
+  const merged = existing.map((item) => {
+    const idKey = item?.id;
+    const nameKey = typeof item?.name === 'string' ? item.name.trim().toLowerCase() : '';
+    const match = (idKey && defaultsById.get(idKey)) || (nameKey && defaultsByName.get(nameKey));
+    if (idKey) seenIds.add(idKey);
+    if (nameKey) seenNames.add(nameKey);
+
+    if (!match) return item;
+    // Preserve user edits while filling missing catalogue metadata fields (code, schoolId, levels, modes, provisional)
+    return {
+      ...match,
+      ...item,
+      programmes: Array.isArray(item.programmes) && item.programmes.length > 0 ? item.programmes : match.programmes,
+    };
+  });
+
+  for (const def of defaults) {
+    const idKey = def?.id;
+    const nameKey = typeof def?.name === 'string' ? def.name.trim().toLowerCase() : '';
+    if ((idKey && seenIds.has(idKey)) || (nameKey && seenNames.has(nameKey))) {
+      continue;
+    }
+    if (idKey) seenIds.add(idKey);
+    if (nameKey) seenNames.add(nameKey);
+    merged.push(def);
+  }
+
+  return merged;
+}
+
+function mergeGraceInstitutionRecord(legacyOrExistingInst) {
+  const graceDefault = INITIAL_STATE.institutionsState[GRACE_INSTITUTION_NAME];
+  if (!legacyOrExistingInst || typeof legacyOrExistingInst !== 'object') {
+    return graceDefault;
+  }
+
+  const rawInfo = legacyOrExistingInst.info || {};
+  const isUntouchedLegacyInfo =
+    !rawInfo.name || rawInfo.name === LEGACY_WESTBRIDGE_NAME || rawInfo.name === GRACE_INSTITUTION_NAME;
+
+  const mergedInfo = {
+    ...graceDefault.info,
+    ...rawInfo,
+    name: isUntouchedLegacyInfo ? graceDefault.info.name : rawInfo.name,
+    shortCode:
+      !rawInfo.shortCode || rawInfo.shortCode === 'UWB'
+        ? graceDefault.info.shortCode
+        : rawInfo.shortCode,
+    domain:
+      !rawInfo.domain || rawInfo.domain === 'westbridge.edu'
+        ? graceDefault.info.domain
+        : rawInfo.domain,
+    country:
+      !rawInfo.country || rawInfo.country === 'United Kingdom'
+        ? graceDefault.info.country
+        : rawInfo.country,
+    contactEmail:
+      !rawInfo.contactEmail || rawInfo.contactEmail === 'projects-office@westbridge.edu'
+        ? graceDefault.info.contactEmail
+        : rawInfo.contactEmail,
+  };
+
+  return {
+    ...graceDefault,
+    ...legacyOrExistingInst,
+    info: mergedInfo,
+    schools: legacyOrExistingInst.schools || graceDefault.schools,
+    qualificationLevels:
+      legacyOrExistingInst.qualificationLevels || graceDefault.qualificationLevels,
+    studyModes: legacyOrExistingInst.studyModes || graceDefault.studyModes,
+    departments: mergeUniqueByIdOrName(
+      legacyOrExistingInst.departments,
+      graceDefault.departments
+    ),
+    sessions: mergeUniqueByIdOrName(
+      legacyOrExistingInst.sessions,
+      graceDefault.sessions
+    ),
+    membershipRequests: Array.isArray(legacyOrExistingInst.membershipRequests)
+      ? legacyOrExistingInst.membershipRequests
+      : graceDefault.membershipRequests,
+    invitations: Array.isArray(legacyOrExistingInst.invitations)
+      ? legacyOrExistingInst.invitations
+      : graceDefault.invitations,
+    projects: Array.isArray(legacyOrExistingInst.projects)
+      ? legacyOrExistingInst.projects
+      : graceDefault.projects,
+    verifiedSupervisors: Array.isArray(legacyOrExistingInst.verifiedSupervisors)
+      ? legacyOrExistingInst.verifiedSupervisors
+      : graceDefault.verifiedSupervisors,
+  };
+}
+
+function migrateKeyedCollection(savedMap, defaultMap, graceMerger = null) {
+  const result = { ...(defaultMap || {}) };
+  if (!savedMap || typeof savedMap !== 'object') return result;
+
+  for (const [key, value] of Object.entries(savedMap)) {
+    if (key === LEGACY_WESTBRIDGE_NAME) {
+      // Promote legacy Westbridge record only if Grace Polytechnic was not already saved
+      if (!Object.prototype.hasOwnProperty.call(savedMap, GRACE_INSTITUTION_NAME)) {
+        result[GRACE_INSTITUTION_NAME] = graceMerger ? graceMerger(value) : value;
+      }
+      continue;
+    }
+    if (key === GRACE_INSTITUTION_NAME) {
+      result[GRACE_INSTITUTION_NAME] = graceMerger ? graceMerger(value) : value;
+      continue;
+    }
+    // Preserve St. Jude, Northfield, and any other institution records untouched
+    result[key] = value;
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(savedMap, LEGACY_WESTBRIDGE_NAME) &&
+    !Object.prototype.hasOwnProperty.call(savedMap, GRACE_INSTITUTION_NAME) &&
+    graceMerger &&
+    !Object.prototype.hasOwnProperty.call(result, GRACE_INSTITUTION_NAME)
+  ) {
+    result[GRACE_INSTITUTION_NAME] = graceMerger(savedMap[LEGACY_WESTBRIDGE_NAME]);
+  }
+
+  return result;
+}
+
+const LEGACY_NOTIFICATION_META = {
+  'n-1': { kind: 'activity', category: 'Documents' },
+  'n-2': { kind: 'activity', category: 'Journals' },
+  'n-3': { kind: 'activity', category: 'Documents' },
+  'n-4': { kind: 'system', category: 'System' },
+  'n-5': { kind: 'activity', category: 'Governance' },
+  'n-6': { kind: 'system', category: 'System' },
+};
+
+function migrateNotificationPreferences(savedPrefs) {
+  if (!savedPrefs || typeof savedPrefs !== 'object') return {};
+  const result = {};
+
+  for (const [rawKey, rawVal] of Object.entries(savedPrefs)) {
+    if (typeof rawKey !== 'string' || !rawVal || typeof rawVal !== 'object') continue;
+    const parts = rawKey.split('::');
+    if (parts.length !== 3) continue;
+    const [rawEmail, rawRole, rawInst] = parts;
+    const canonicalKey = buildNotificationPreferenceKey(rawEmail, rawRole, rawInst);
+    if (!canonicalKey) continue;
+
+    const isLegacyWestbridgeKey = rawInst.trim() === LEGACY_WESTBRIDGE_NAME;
+    if (
+      isLegacyWestbridgeKey &&
+      Object.prototype.hasOwnProperty.call(savedPrefs, canonicalKey)
+    ) {
+      continue;
+    }
+
+    result[canonicalKey] = sanitizeNotificationPreferences(rawVal);
+  }
+
+  return result;
+}
+
+export function migratePersistedState(parsed) {
+  if (!parsed || typeof parsed !== 'object') return INITIAL_STATE;
+
+  const rawNotifications = Array.isArray(parsed.notifications)
+    ? parsed.notifications
+    : INITIAL_STATE.notifications;
+  const rawActivityFeed = Array.isArray(parsed.activityFeed)
+    ? parsed.activityFeed
+    : INITIAL_STATE.activityFeed;
+
+  return {
+    ...INITIAL_STATE,
+    ...parsed,
+    projectsByInstitution: migrateKeyedCollection(
+      parsed.projectsByInstitution,
+      INITIAL_STATE.projectsByInstitution
+    ),
+    institutionsState: migrateKeyedCollection(
+      parsed.institutionsState,
+      INITIAL_STATE.institutionsState,
+      mergeGraceInstitutionRecord
+    ),
+    officeHoursByInstitution: migrateKeyedCollection(
+      parsed.officeHoursByInstitution,
+      INITIAL_STATE.officeHoursByInstitution
+    ),
+    userProfiles: migrateUserProfiles(parsed.userProfiles, INITIAL_STATE.userProfiles),
+    notificationPreferences: migrateNotificationPreferences(parsed.notificationPreferences),
+    notifications: rawNotifications.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const legacyMeta = LEGACY_NOTIFICATION_META[item.id];
+      const nextKind =
+        item.kind || (legacyMeta ? legacyMeta.kind : item.reminderKey ? 'deadline_reminder' : 'activity');
+      const nextCategory =
+        item.category || (legacyMeta ? legacyMeta.category : nextKind === 'system' ? 'System' : undefined);
+
+      return {
+        ...item,
+        kind: nextKind,
+        ...(nextCategory ? { category: nextCategory } : {}),
+        targetPath: normalizeLegacyTargetPath(item.targetPath),
+        ...(item.institutionName
+          ? { institutionName: canonicalizeInstitutionName(item.institutionName) }
+          : {}),
+      };
+    }),
+    activityFeed: rawActivityFeed.map((item) => ({
+      ...item,
+      targetPath: normalizeLegacyTargetPath(item.targetPath),
+      institutionName:
+        item.institutionName === LEGACY_WESTBRIDGE_NAME
+          ? GRACE_INSTITUTION_NAME
+          : item.institutionName,
+    })),
+  };
+}
+
+function emitActivityNotificationPure(
+  prevState,
+  {
+    roleKey,
+    institutionName,
+    recipientEmail,
+    category,
+    title,
+    body,
+    targetPath,
+    eventKey,
+  }
+) {
+  const existingNotifications = Array.isArray(prevState?.notifications)
+    ? prevState.notifications
+    : [];
+  const cleanRole = String(roleKey || '').trim();
+  const cleanInst = canonicalizeInstitutionName(institutionName || '');
+  const cleanEventKey = String(eventKey || '').trim();
+  const cleanRecipient = String(recipientEmail || '').trim().toLowerCase();
+
+  if (
+    !cleanInst ||
+    !cleanEventKey ||
+    !['student', 'supervisor', 'institution_admin'].includes(cleanRole)
+  ) {
+    return existingNotifications;
+  }
+
+  const dedupeKey = `${cleanEventKey}::${cleanRole}::${cleanInst}::${cleanRecipient || '*'}`;
+  if (existingNotifications.some((n) => n?.dedupeKey === dedupeKey)) {
+    return existingNotifications;
+  }
+
+  if (cleanRecipient) {
+    const recipientPrefs = resolveNotificationPreferences(
+      prevState.notificationPreferences,
+      { roleKey: cleanRole, institutionName: cleanInst, status: 'Approved' },
+      { email: cleanRecipient }
+    );
+    if (
+      !recipientPrefs.activityEnabled ||
+      (category &&
+        Object.prototype.hasOwnProperty.call(recipientPrefs.activityCategories, category) &&
+        !recipientPrefs.activityCategories[category])
+    ) {
+      return existingNotifications;
+    }
+  }
+
+  const nextEntry = {
+    id: `n-act-${dedupeKey}`,
+    roleKey: cleanRole,
+    recipientEmail: cleanRecipient,
+    institutionName: cleanInst,
+    kind: 'activity',
+    category: category || 'Tasks',
+    dedupeKey,
+    status: 'active',
+    title,
+    body,
+    time: 'Just now',
+    createdAtIso: getCurrentIsoDate(new Date()),
+    read: false,
+    targetPath: normalizeLegacyTargetPath(targetPath),
+  };
+
+  return [nextEntry, ...existingNotifications];
+}
+
 const DemoAppStateContext = createContext(null);
 
 export function DemoAppStateProvider({ children }) {
@@ -948,17 +1526,18 @@ export function DemoAppStateProvider({ children }) {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (!saved) return INITIAL_STATE;
       const parsed = JSON.parse(saved);
-      return {
-        ...INITIAL_STATE,
-        ...parsed,
-        officeHoursByInstitution:
-          parsed.officeHoursByInstitution || INITIAL_STATE.officeHoursByInstitution,
-        activityFeed: parsed.activityFeed || INITIAL_STATE.activityFeed,
-      };
+      return migratePersistedState(parsed);
     } catch {
       return INITIAL_STATE;
     }
   });
+
+  const nextSeqRef = useRef(1);
+  const nextUid = useCallback((prefix) => {
+    const seq = nextSeqRef.current;
+    nextSeqRef.current += 1;
+    return `${prefix}-${Date.now()}-${seq}`;
+  }, []);
 
   useEffect(() => {
     try {
@@ -972,34 +1551,18 @@ export function DemoAppStateProvider({ children }) {
     setState(INITIAL_STATE);
   };
 
-  const pushNotification = (roleKey, title, body, targetPath) => {
-    setState((prev) => ({
-      ...prev,
-      notifications: [
-        {
-          id: `n-${Date.now()}`,
-          roleKey,
-          title,
-          body,
-          time: 'Just now',
-          read: false,
-          targetPath,
-        },
-        ...prev.notifications,
-      ],
-    }));
-  };
-
   const recordActivity = (entry) => {
-    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const now = getCurrentLocalTimestamp(new Date());
+    const afId = nextUid('af');
     setState((prev) => ({
       ...prev,
       activityFeed: [
         {
-          id: `af-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: afId,
           timestamp: now,
           roleScope: 'all',
           ...entry,
+          institutionName: canonicalizeInstitutionName(entry?.institutionName) || entry?.institutionName,
         },
         ...(prev.activityFeed || []),
       ].slice(0, 50),
@@ -1013,42 +1576,186 @@ export function DemoAppStateProvider({ children }) {
     }));
   };
 
-  const markAllNotificationsRead = (roleKey) => {
+  const markAllNotificationsRead = (roleKey, scope = null) => {
+    const scopeInst = canonicalizeInstitutionName(scope?.institutionName || '');
+    const scopeEmail = String(scope?.recipientEmail || '').trim().toLowerCase();
+
     setState((prev) => ({
       ...prev,
-      notifications: prev.notifications.map((n) =>
-        n.roleKey === roleKey ? { ...n, read: true } : n
-      ),
+      notifications: prev.notifications.map((n) => {
+        if (n.roleKey !== roleKey) return n;
+        if (n.status === 'resolved' || n.status === 'suppressed') return n;
+        if (n.institutionName && scopeInst && canonicalizeInstitutionName(n.institutionName) !== scopeInst) {
+          return n;
+        }
+        if (n.recipientEmail && scopeEmail && String(n.recipientEmail).trim().toLowerCase() !== scopeEmail) {
+          return n;
+        }
+        return { ...n, read: true };
+      }),
     }));
   };
 
-  const updateUserProfile = (email, updates) => {
-    setState((prev) => ({
-      ...prev,
-      userProfiles: {
-        ...prev.userProfiles,
-        [email]: {
-          ...(prev.userProfiles[email] || {}),
-          ...updates,
+  const getScopedNotificationPreferences = useCallback(
+    (email, roleKey, institutionName) =>
+      resolveNotificationPreferences(
+        state.notificationPreferences,
+        { roleKey, institutionName, status: 'Approved' },
+        { email }
+      ),
+    [state.notificationPreferences]
+  );
+
+  const updateNotificationPreferences = useCallback((scope, updates = {}) => {
+    if (!scope || typeof scope !== 'object' || !updates || typeof updates !== 'object') return;
+    const scopeKey = buildNotificationPreferenceKey(
+      scope.email,
+      scope.roleKey,
+      scope.institutionName
+    );
+    if (!scopeKey) return;
+
+    const updatedAt = getCurrentLocalTimestamp(new Date());
+    setState((prev) => {
+      const existing = prev.notificationPreferences?.[scopeKey];
+      const base = updates.reset
+        ? DEFAULT_NOTIFICATION_PREFERENCES
+        : sanitizeNotificationPreferences(existing);
+
+      const merged = updates.reset
+        ? { ...DEFAULT_NOTIFICATION_PREFERENCES, updatedAt }
+        : sanitizeNotificationPreferences({
+            ...base,
+            ...updates,
+            categories: {
+              ...base.categories,
+              ...(updates.categories || {}),
+            },
+            activityCategories: {
+              ...base.activityCategories,
+              ...(updates.activityCategories || {}),
+            },
+            updatedAt,
+          });
+
+      return {
+        ...prev,
+        notificationPreferences: {
+          ...(prev.notificationPreferences || {}),
+          [scopeKey]: merged,
         },
-      },
-    }));
+      };
+    });
+  }, []);
+
+  const syncDeadlineReminders = useCallback((syncContext = {}, referenceDate = new Date()) => {
+    const { activeMembership, session } = syncContext || {};
+    if (!activeMembership || !session) return;
+
+    setState((prev) => {
+      const openCandidateKeys = evaluateOpenReminderCandidateKeys({
+        state: prev,
+        activeMembership,
+        session,
+        referenceDate,
+      });
+      const evaluated = evaluateDeadlineReminders({
+        state: prev,
+        activeMembership,
+        session,
+        referenceDate,
+      });
+      const reconciledDeadlines = reconcileDeadlineRemindersState({
+        notifications: prev.notifications,
+        evaluatedReminders: evaluated,
+        openCandidateKeys,
+        activeMembership,
+        session,
+        referenceDate,
+      });
+      const reconciledActivity = reconcileActivityPreferencesState({
+        notifications: reconciledDeadlines.notifications,
+        notificationPreferences: prev.notificationPreferences,
+        activeMembership,
+        session,
+        referenceDate,
+      });
+
+      if (!reconciledDeadlines.changed && !reconciledActivity.changed) return prev;
+      return {
+        ...prev,
+        notifications: reconciledActivity.notifications,
+      };
+    });
+  }, []);
+
+  const updateUserProfile = (email, updates, scope = null) => {
+    const cleanEmail = typeof email === 'string' ? email.trim() : '';
+    if (!cleanEmail || !updates || typeof updates !== 'object') return;
+
+    const sharedUpdates = sanitizeProfileUpdates(updates);
+    const scopeKey = scope
+      ? buildProfileScopeKey(scope.roleKey, scope.institutionName)
+      : '';
+    const scopedUpdates = scopeKey
+      ? sanitizeRoleScopedProfileUpdates(updates)
+      : {};
+
+    if (
+      Object.keys(sharedUpdates).length === 0 &&
+      Object.keys(scopedUpdates).length === 0
+    ) {
+      return;
+    }
+
+    setState((prev) => {
+      const existing = prev.userProfiles?.[cleanEmail] || {};
+      const existingRoleProfiles =
+        existing.roleProfiles && typeof existing.roleProfiles === 'object'
+          ? existing.roleProfiles
+          : {};
+
+      const nextRoleProfiles =
+        scopeKey && Object.keys(scopedUpdates).length > 0
+          ? {
+              ...existingRoleProfiles,
+              [scopeKey]: {
+                ...(existingRoleProfiles[scopeKey] || {}),
+                ...scopedUpdates,
+              },
+            }
+          : existingRoleProfiles;
+
+      return {
+        ...prev,
+        userProfiles: {
+          ...prev.userProfiles,
+          [cleanEmail]: {
+            ...existing,
+            ...sharedUpdates,
+            roleProfiles: nextRoleProfiles,
+          },
+        },
+      };
+    });
   };
 
   // Student project actions
   const addProjectTask = (institutionName, task) => {
+    const taskId = nextUid('t');
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             tasks: [
               {
-                id: `t-${Date.now()}`,
+                id: taskId,
                 completed: false,
                 status: 'todo',
                 priority: 'Medium',
@@ -1074,13 +1781,14 @@ export function DemoAppStateProvider({ children }) {
 
   const toggleProjectTask = (institutionName, taskId) => {
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             tasks: proj.tasks.map((t) => {
               if (t.id !== taskId) return t;
@@ -1100,7 +1808,8 @@ export function DemoAppStateProvider({ children }) {
   const moveProjectTaskStatus = (institutionName, taskId, nextStatus) => {
     let movedTitle = 'Task';
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       const target = proj.tasks.find((t) => t.id === taskId);
       if (target) movedTitle = target.title;
@@ -1108,7 +1817,7 @@ export function DemoAppStateProvider({ children }) {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             tasks: proj.tasks.map((t) =>
               t.id === taskId
@@ -1133,13 +1842,14 @@ export function DemoAppStateProvider({ children }) {
 
   const updateProjectTask = (institutionName, taskId, updates) => {
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             tasks: proj.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
           },
@@ -1150,13 +1860,14 @@ export function DemoAppStateProvider({ children }) {
 
   const deleteProjectTask = (institutionName, taskId) => {
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             tasks: proj.tasks.filter((t) => t.id !== taskId),
           },
@@ -1165,21 +1876,37 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const addMilestone = (institutionName, milestone) => {
+  const addMilestone = (institutionName, milestone, options = {}) => {
+    const msId = nextUid('ms');
+    const eventKey = options?.eventKey || `milestone-add-${msId}`;
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       const nextPhase = proj.milestones.length + 1;
+      const nextNotifications = proj.supervisorEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: 'supervisor',
+            institutionName: targetKey,
+            recipientEmail: proj.supervisorEmail,
+            category: 'Tasks',
+            title: `New milestone added: ${milestone.title}`,
+            body: `${proj.studentName || 'Student'} added a project milestone due ${milestone.dueDate}.`,
+            targetPath: '/supervisor/milestones',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             milestones: [
               ...proj.milestones,
               {
-                id: `ms-${Date.now()}`,
+                id: msId,
                 phaseNumber: nextPhase,
                 description: '',
                 weightPercent: 20,
@@ -1190,6 +1917,7 @@ export function DemoAppStateProvider({ children }) {
             ],
           },
         },
+        notifications: nextNotifications,
       };
     });
     recordActivity({
@@ -1207,25 +1935,53 @@ export function DemoAppStateProvider({ children }) {
   const addMilestoneFeedback = (
     institutionName,
     milestoneId,
-    { authorName, authorRole, comment, nextStatus }
+    { authorName, authorRole, comment, nextStatus },
+    options = {}
   ) => {
-    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    const now = getCurrentLocalTimestamp(new Date());
+    const mfbId = nextUid('mfb');
+    const eventKey = options?.eventKey || `milestone-feedback-${milestoneId}-${mfbId}`;
     let msTitle = 'Project Milestone';
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
+
+      const targetMs = proj.milestones.find((m) => m.id === milestoneId);
+      if (!targetMs) return prev;
+      msTitle = targetMs.title;
+
+      const isSupervisorAuthor = authorRole === 'supervisor';
+      const recipientRole = isSupervisorAuthor ? 'student' : 'supervisor';
+      const recipientEmail = isSupervisorAuthor ? proj.studentEmail : proj.supervisorEmail;
+      const targetPath = isSupervisorAuthor ? '/student/milestones' : '/supervisor/milestones';
+
+      const nextNotifications = recipientEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: recipientRole,
+            institutionName: targetKey,
+            recipientEmail,
+            category: 'Documents',
+            title: isSupervisorAuthor
+              ? `Milestone feedback: ${msTitle}`
+              : `Student commented on milestone: ${msTitle}`,
+            body: String(comment || '').slice(0, 95),
+            targetPath,
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             milestones: proj.milestones.map((m) => {
               if (m.id !== milestoneId) return m;
-              msTitle = m.title;
               const resolvedStatus = nextStatus || m.status;
               const entry = {
-                id: `mfb-${Date.now()}`,
+                id: mfbId,
                 authorName,
                 authorRole,
                 statusSnapshot: resolvedStatus,
@@ -1240,16 +1996,9 @@ export function DemoAppStateProvider({ children }) {
             }),
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      authorRole === 'supervisor' ? 'student' : 'supervisor',
-      authorRole === 'supervisor'
-        ? `Milestone feedback: ${msTitle}`
-        : `Student updated milestone: ${msTitle}`,
-      comment.slice(0, 95),
-      authorRole === 'supervisor' ? '/student/milestones' : '/supervisor/milestones'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
@@ -1262,40 +2011,65 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const updateMilestoneStatus = (institutionName, milestoneId, nextStatus) => {
+  const updateMilestoneStatus = (institutionName, milestoneId, nextStatus, options = {}) => {
+    const nonce = nextUid('msstat');
+    const eventKey = options?.eventKey || `milestone-status-${milestoneId}-${nextStatus}-${nonce}`;
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
+      const targetMs = proj.milestones.find((m) => m.id === milestoneId);
+      if (!targetMs || targetMs.status === nextStatus) return prev;
+
+      const actorRole =
+        options?.actorRole || (nextStatus === 'Pending Review' ? 'student' : 'supervisor');
+      const isStudentActor = actorRole === 'student';
+      const recipientRole = isStudentActor ? 'supervisor' : 'student';
+      const recipientEmail = isStudentActor ? proj.supervisorEmail : proj.studentEmail;
+
+      const nextNotifications = recipientEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: recipientRole,
+            institutionName: targetKey,
+            recipientEmail,
+            category: 'Tasks',
+            title: isStudentActor
+              ? `Milestone approval requested: ${targetMs.title}`
+              : `Milestone marked ${nextStatus}: ${targetMs.title}`,
+            body: isStudentActor
+              ? `${proj.studentName || 'Student'} requested review for Phase ${targetMs.phaseNumber || ''}.`.trim()
+              : `${proj.supervisorName || 'Supervisor'} updated a project milestone status to ${nextStatus}.`,
+            targetPath: isStudentActor ? '/supervisor/milestones' : '/student/milestones',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             milestones: proj.milestones.map((m) =>
               m.id === milestoneId ? { ...m, status: nextStatus } : m
             ),
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'student',
-      `Milestone marked ${nextStatus}`,
-      `Supervisor updated a project milestone status to ${nextStatus}.`,
-      '/student/milestones'
-    );
   };
 
   const updateMilestoneDueDate = (institutionName, milestoneId, dueDate) => {
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             milestones: proj.milestones.map((m) =>
               m.id === milestoneId ? { ...m, dueDate } : m
@@ -1306,22 +2080,39 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const addWeeklyJournal = (institutionName, entry) => {
+  const addWeeklyJournal = (institutionName, entry, options = {}) => {
+    const today = getCurrentIsoDate(new Date());
+    const jId = nextUid('j');
+    const eventKey = options?.eventKey || `journal-add-${jId}`;
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       const nextWeek = (proj.journals[0]?.weekNumber || 0) + 1;
+      const nextNotifications = proj.supervisorEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: 'supervisor',
+            institutionName: targetKey,
+            recipientEmail: proj.supervisorEmail,
+            category: 'Journals',
+            title: `New Week ${nextWeek} journal submitted`,
+            body: `${proj.studentName || 'Student'} logged a new weekly progress journal for ${targetKey}.`,
+            targetPath: '/supervisor/journals',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             journals: [
               {
-                id: `j-${Date.now()}`,
+                id: jId,
                 weekNumber: nextWeek,
-                date: new Date().toISOString().slice(0, 10),
+                date: today,
                 supervisorFeedback: '',
                 reviewedAt: '',
                 ...entry,
@@ -1330,14 +2121,9 @@ export function DemoAppStateProvider({ children }) {
             ],
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'supervisor',
-      'New weekly journal submitted',
-      `Student logged a new weekly progress journal for ${institutionName}.`,
-      '/supervisor/journals'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
@@ -1350,22 +2136,39 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const submitDocumentChapter = (institutionName, submission) => {
+  const submitDocumentChapter = (institutionName, submission, options = {}) => {
+    const today = getCurrentIsoDate(new Date());
+    const subId = nextUid('sub');
+    const docGroupId = submission.documentGroupId || nextUid('doc');
+    const eventKey = options?.eventKey || `doc-submit-${subId}`;
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
+      const nextNotifications = proj.supervisorEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: 'supervisor',
+            institutionName: targetKey,
+            recipientEmail: proj.supervisorEmail,
+            category: 'Documents',
+            title: 'New chapter version awaiting review',
+            body: `${submission.title} (${submission.version}) was submitted by ${proj.studentName || 'Student'}.`,
+            targetPath: '/supervisor/reviews',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             submissions: [
               {
-                id: `sub-${Date.now()}`,
-                documentGroupId:
-                  submission.documentGroupId || `doc-${Date.now()}`,
-                submittedAt: new Date().toISOString().slice(0, 10),
+                id: subId,
+                documentGroupId: docGroupId,
+                submittedAt: today,
                 status: 'Pending Review',
                 supervisorFeedback: '',
                 studentResponse: '',
@@ -1375,14 +2178,9 @@ export function DemoAppStateProvider({ children }) {
             ],
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'supervisor',
-      'New chapter version awaiting review',
-      `${submission.title} (${submission.version}) was submitted for review.`,
-      '/supervisor/reviews'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
@@ -1395,15 +2193,34 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const respondToRevision = (institutionName, submissionId, responseText) => {
+  const respondToRevision = (institutionName, submissionId, responseText, options = {}) => {
+    const nonce = nextUid('revresp');
+    const eventKey = options?.eventKey || `doc-rev-response-${submissionId}-${nonce}`;
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
+      const targetSub = proj.submissions.find((s) => s.id === submissionId);
+      if (!targetSub) return prev;
+
+      const nextNotifications = proj.supervisorEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: 'supervisor',
+            institutionName: targetKey,
+            recipientEmail: proj.supervisorEmail,
+            category: 'Documents',
+            title: `Revision response posted: ${targetSub.title}`,
+            body: `${proj.studentName || 'Student'} responded to feedback and requested re-review.`,
+            targetPath: '/supervisor/reviews',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             submissions: proj.submissions.map((sub) =>
               sub.id === submissionId
@@ -1412,14 +2229,9 @@ export function DemoAppStateProvider({ children }) {
             ),
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'supervisor',
-      'Student responded to revision request',
-      'A student posted a revision response and requested re-review.',
-      '/supervisor/reviews'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
@@ -1432,47 +2244,74 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const sendProjectMessage = (institutionName, senderRole, senderName, body) => {
-    const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const sendProjectMessage = (institutionName, senderRole, senderName, body, options = {}) => {
+    const now = getCurrentLocalTimestamp(new Date());
+    const msgId = nextUid('msg');
+    const eventKey = options?.eventKey || `msg-${msgId}`;
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
+
+      const isStudentSender = senderRole === 'student';
+      const recipientRole = isStudentSender ? 'supervisor' : 'student';
+      const recipientEmail = isStudentSender ? proj.supervisorEmail : proj.studentEmail;
+
+      const nextNotifications = recipientEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: recipientRole,
+            institutionName: targetKey,
+            recipientEmail,
+            category: 'Messages',
+            title: `New message from ${senderName}`,
+            body: String(body || '').slice(0, 90),
+            targetPath: isStudentSender ? '/supervisor/reports' : '/student/messages',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             messages: [
               ...proj.messages,
-              { id: `msg-${Date.now()}`, senderRole, senderName, sentAt: now, body },
+              { id: msgId, senderRole, senderName, sentAt: now, body },
             ],
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      senderRole === 'student' ? 'supervisor' : 'student',
-      `New message from ${senderName}`,
-      body.slice(0, 90),
-      senderRole === 'student' ? '/supervisor/reports' : '/student/messages'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
       category: 'Messages',
       actor: senderName,
       actorRole: senderRole === 'student' ? 'Student' : 'Supervisor',
-      action: `Posted project thread message`,
+      action: 'Posted project thread message',
       detail: body.slice(0, 100),
       targetPath: senderRole === 'student' ? '/student/messages' : '/supervisor/reports',
     });
   };
 
   // Supervisor actions
-  const reviewSubmission = (institutionName, submissionId, decision, feedback, isExtra = false) => {
+  const reviewSubmission = (
+    institutionName,
+    submissionId,
+    decision,
+    feedback,
+    isExtra = false,
+    options = {}
+  ) => {
+    const nonce = nextUid('subrev');
+    const eventKey = options?.eventKey || `doc-review-${submissionId}-${decision}-${nonce}`;
     setState((prev) => {
       if (isExtra) {
+        // Extra supervisees (e.g., Liam Gallagher / Amara Okafor) do not have a scoped user account
+        // in DemoAppStateContext; update queue without broadcasting to unrelated student accounts.
         return {
           ...prev,
           supervisorExtraSubmissions: prev.supervisorExtraSubmissions.map((s) =>
@@ -1480,14 +2319,30 @@ export function DemoAppStateProvider({ children }) {
           ),
         };
       }
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
       const targetSub = proj.submissions.find((s) => s.id === submissionId);
+      if (!targetSub) return prev;
+
+      const nextNotifications = proj.studentEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: 'student',
+            institutionName: targetKey,
+            recipientEmail: proj.studentEmail,
+            category: 'Documents',
+            title: `Submission ${decision}: ${targetSub.title}`,
+            body: feedback || `Your supervisor marked a submission as ${decision}.`,
+            targetPath: '/student/documents',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             submissions: proj.submissions.map((s) =>
               s.id === submissionId ? { ...s, status: decision, supervisorFeedback: feedback } : s
@@ -1499,14 +2354,9 @@ export function DemoAppStateProvider({ children }) {
               : proj.milestones,
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'student',
-      `Submission ${decision}`,
-      feedback || `Your supervisor marked a submission as ${decision}.`,
-      '/student/documents'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
@@ -1519,42 +2369,57 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const addJournalFeedback = (institutionName, journalId, feedback) => {
-    const today = new Date().toISOString().slice(0, 10);
+  const addJournalFeedback = (institutionName, journalId, feedback, options = {}) => {
+    const today = getCurrentIsoDate(new Date());
+    const nonce = nextUid('jfb');
+    const eventKey = options?.eventKey || `journal-feedback-${journalId}-${nonce}`;
     setState((prev) => {
-      const proj = prev.projectsByInstitution[institutionName];
+      const targetKey = resolveInstitutionKey(prev.projectsByInstitution, institutionName);
+      const proj = targetKey ? prev.projectsByInstitution[targetKey] : null;
       if (!proj) return prev;
+      const targetJournal = proj.journals.find((j) => j.id === journalId);
+      if (!targetJournal) return prev;
+
+      const nextNotifications = proj.studentEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: 'student',
+            institutionName: targetKey,
+            recipientEmail: proj.studentEmail,
+            category: 'Journals',
+            title: `Supervisor reviewed Week ${targetJournal.weekNumber || ''} journal`.trim(),
+            body: String(feedback || '').slice(0, 90),
+            targetPath: '/student/journals',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         projectsByInstitution: {
           ...prev.projectsByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...proj,
             journals: proj.journals.map((j) =>
               j.id === journalId ? { ...j, supervisorFeedback: feedback, reviewedAt: today } : j
             ),
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'student',
-      'Supervisor reviewed your weekly journal',
-      feedback.slice(0, 90),
-      '/student/journals'
-    );
   };
 
   // Institution Admin actions
   const updateInstitutionInfo = (institutionName, updates) => {
     setState((prev) => {
-      const inst = prev.institutionsState[institutionName];
+      const targetKey = resolveInstitutionKey(prev.institutionsState, institutionName);
+      const inst = targetKey ? prev.institutionsState[targetKey] : null;
       if (!inst) return prev;
       return {
         ...prev,
         institutionsState: {
           ...prev.institutionsState,
-          [institutionName]: {
+          [targetKey]: {
             ...inst,
             info: { ...inst.info, ...updates },
           },
@@ -1563,24 +2428,50 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const addInstitutionDepartment = (institutionName, deptName, initialProgramme) => {
+  const addInstitutionDepartment = (
+    institutionName,
+    deptName,
+    initialProgramme,
+    metadata = {}
+  ) => {
     setState((prev) => {
-      const inst = prev.institutionsState[institutionName];
+      const targetKey = resolveInstitutionKey(prev.institutionsState, institutionName);
+      const inst = targetKey ? prev.institutionsState[targetKey] : null;
       if (!inst) return prev;
+      const schoolId = metadata.schoolId || inst.schools?.[0]?.id || 'ssrt';
+      const schoolName =
+        inst.schools?.find((s) => s.id === schoolId)?.name ||
+        SCHOOL_NAME_BY_ID[schoolId] ||
+        'Academic School';
+      const cleanCode =
+        (metadata.code || deptName.slice(0, 3)).trim().toUpperCase().slice(0, 6) || 'DEPT';
       return {
         ...prev,
         institutionsState: {
           ...prev.institutionsState,
-          [institutionName]: {
+          [targetKey]: {
             ...inst,
             departments: [
               ...inst.departments,
               {
                 id: `dept-${Date.now()}`,
+                code: cleanCode,
+                schoolId,
+                schoolName,
                 name: deptName,
                 programmes: initialProgramme ? [initialProgramme] : [],
+                qualificationLevels:
+                  Array.isArray(metadata.qualificationLevels) &&
+                  metadata.qualificationLevels.length > 0
+                    ? metadata.qualificationLevels
+                    : ['ND', 'HND'],
+                studyModes:
+                  Array.isArray(metadata.studyModes) && metadata.studyModes.length > 0
+                    ? metadata.studyModes
+                    : ['Full-Time'],
                 students: 0,
                 supervisors: 0,
+                provisional: true,
               },
             ],
           },
@@ -1591,16 +2482,17 @@ export function DemoAppStateProvider({ children }) {
 
   const addAcademicSession = (institutionName, sessionName) => {
     setState((prev) => {
-      const inst = prev.institutionsState[institutionName];
+      const targetKey = resolveInstitutionKey(prev.institutionsState, institutionName);
+      const inst = targetKey ? prev.institutionsState[targetKey] : null;
       if (!inst) return prev;
       return {
         ...prev,
         institutionsState: {
           ...prev.institutionsState,
-          [institutionName]: {
+          [targetKey]: {
             ...inst,
             sessions: [
-              { id: `ses-${Date.now()}`, name: sessionName, active: true },
+              { id: `ses-${Date.now()}`, name: sessionName, active: true, provisional: true },
               ...inst.sessions.map((s) => ({ ...s, active: false })),
             ],
           },
@@ -1609,15 +2501,37 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const decideMembershipRequest = (institutionName, requestId, decision) => {
+  const activateAcademicSession = (institutionName, sessionId) => {
     setState((prev) => {
-      const inst = prev.institutionsState[institutionName];
+      const targetKey = resolveInstitutionKey(prev.institutionsState, institutionName);
+      const inst = targetKey ? prev.institutionsState[targetKey] : null;
       if (!inst) return prev;
       return {
         ...prev,
         institutionsState: {
           ...prev.institutionsState,
-          [institutionName]: {
+          [targetKey]: {
+            ...inst,
+            sessions: inst.sessions.map((s) => ({
+              ...s,
+              active: s.id === sessionId,
+            })),
+          },
+        },
+      };
+    });
+  };
+
+  const decideMembershipRequest = (institutionName, requestId, decision) => {
+    setState((prev) => {
+      const targetKey = resolveInstitutionKey(prev.institutionsState, institutionName);
+      const inst = targetKey ? prev.institutionsState[targetKey] : null;
+      if (!inst) return prev;
+      return {
+        ...prev,
+        institutionsState: {
+          ...prev.institutionsState,
+          [targetKey]: {
             ...inst,
             membershipRequests: inst.membershipRequests.map((r) =>
               r.id === requestId ? { ...r, status: decision } : r
@@ -1626,28 +2540,31 @@ export function DemoAppStateProvider({ children }) {
         },
       };
     });
+    const labelName = canonicalizeInstitutionName(institutionName) || institutionName;
     recordActivity({
       roleScope: 'institution_admin',
-      institutionName,
+      institutionName: labelName,
       category: 'Governance',
       actor: 'Institution Admin',
       actorRole: 'Institution Admin',
       action: `Marked membership request as ${decision}`,
-      detail: `Scoped to ${institutionName}.`,
-      targetPath: '/institution/approvals',
+      detail: `Scoped to ${labelName}.`,
+      targetPath: '/admin/approvals',
     });
   };
 
   const createSupervisorInvite = (institutionName, email, department) => {
     const code = `SPT-${Math.floor(1000 + Math.random() * 9000)}`;
+    const today = getCurrentIsoDate(new Date());
     setState((prev) => {
-      const inst = prev.institutionsState[institutionName];
+      const targetKey = resolveInstitutionKey(prev.institutionsState, institutionName);
+      const inst = targetKey ? prev.institutionsState[targetKey] : null;
       if (!inst) return prev;
       return {
         ...prev,
         institutionsState: {
           ...prev.institutionsState,
-          [institutionName]: {
+          [targetKey]: {
             ...inst,
             invitations: [
               {
@@ -1655,8 +2572,8 @@ export function DemoAppStateProvider({ children }) {
                 email,
                 department,
                 code,
-                status: 'Pending Acceptance',
-                createdAt: new Date().toISOString().slice(0, 10),
+                status: 'Demo Invite (Stage D Verification Deferred)',
+                createdAt: today,
               },
               ...inst.invitations,
             ],
@@ -1669,13 +2586,14 @@ export function DemoAppStateProvider({ children }) {
 
   const assignSupervisorToProject = (institutionName, projectId, supervisorName) => {
     setState((prev) => {
-      const inst = prev.institutionsState[institutionName];
+      const targetKey = resolveInstitutionKey(prev.institutionsState, institutionName);
+      const inst = targetKey ? prev.institutionsState[targetKey] : null;
       if (!inst) return prev;
       return {
         ...prev,
         institutionsState: {
           ...prev.institutionsState,
-          [institutionName]: {
+          [targetKey]: {
             ...inst,
             projects: inst.projects.map((p) =>
               p.id === projectId ? { ...p, supervisorName } : p
@@ -1688,16 +2606,17 @@ export function DemoAppStateProvider({ children }) {
 
   const createInstitutionProject = (institutionName, project) => {
     setState((prev) => {
-      const inst = prev.institutionsState[institutionName];
+      const targetKey = resolveInstitutionKey(prev.institutionsState, institutionName);
+      const inst = targetKey ? prev.institutionsState[targetKey] : null;
       if (!inst) return prev;
       const code =
         project.code?.trim() ||
-        `${inst.info.shortCode || 'PRJ'}-2026-${String(inst.projects.length + 101)}`;
+        `${inst.info.shortCode || 'GP'}-2026-${String(inst.projects.length + 101)}`;
       return {
         ...prev,
         institutionsState: {
           ...prev.institutionsState,
-          [institutionName]: {
+          [targetKey]: {
             ...inst,
             projects: [
               {
@@ -1764,7 +2683,7 @@ export function DemoAppStateProvider({ children }) {
             id: `pa-${Date.now()}`,
             name,
             email,
-            addedAt: new Date().toISOString().slice(0, 10),
+            addedAt: getCurrentIsoDate(),
             status: 'Active',
           },
         ],
@@ -1804,21 +2723,42 @@ export function DemoAppStateProvider({ children }) {
   };
 
   // Supervisor Office Hours & Student Scheduling actions
-  const addOfficeHourSlot = (institutionName, slot) => {
+  const addOfficeHourSlot = (institutionName, slot, options = {}) => {
+    const ohId = nextUid('oh');
+    const eventKey = options?.eventKey || `oh-slot-${ohId}`;
     setState((prev) => {
-      const current = prev.officeHoursByInstitution?.[institutionName] || {
+      const targetKey =
+        resolveInstitutionKey(prev.officeHoursByInstitution, institutionName) ||
+        canonicalizeInstitutionName(institutionName);
+      if (!targetKey) return prev;
+      const current = prev.officeHoursByInstitution?.[targetKey] || {
         availabilitySlots: [],
         bookings: [],
       };
+      const projKey = resolveInstitutionKey(prev.projectsByInstitution, targetKey);
+      const proj = projKey ? prev.projectsByInstitution[projKey] : null;
+      const nextNotifications = proj?.studentEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: 'student',
+            institutionName: targetKey,
+            recipientEmail: proj.studentEmail,
+            category: 'Governance',
+            title: 'New supervisor office hour slot published',
+            body: `${slot.supervisorName} added ${slot.dayOfWeek} (${slot.startTime}–${slot.endTime}).`,
+            targetPath: '/student/office-hours',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         officeHoursByInstitution: {
           ...prev.officeHoursByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...current,
             availabilitySlots: [
               {
-                id: `oh-${Date.now()}`,
+                id: ohId,
                 active: true,
                 slotMinutes: 30,
                 ...slot,
@@ -1827,14 +2767,9 @@ export function DemoAppStateProvider({ children }) {
             ],
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'student',
-      'New supervisor office hour slot published',
-      `${slot.supervisorName} added ${slot.dayOfWeek} (${slot.startTime}–${slot.endTime}).`,
-      '/student/office-hours'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
@@ -1849,13 +2784,14 @@ export function DemoAppStateProvider({ children }) {
 
   const toggleOfficeHourSlot = (institutionName, slotId) => {
     setState((prev) => {
-      const current = prev.officeHoursByInstitution?.[institutionName];
+      const targetKey = resolveInstitutionKey(prev.officeHoursByInstitution, institutionName);
+      const current = targetKey ? prev.officeHoursByInstitution?.[targetKey] : null;
       if (!current) return prev;
       return {
         ...prev,
         officeHoursByInstitution: {
           ...prev.officeHoursByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...current,
             availabilitySlots: current.availabilitySlots.map((s) =>
               s.id === slotId ? { ...s, active: !s.active } : s
@@ -1868,13 +2804,14 @@ export function DemoAppStateProvider({ children }) {
 
   const deleteOfficeHourSlot = (institutionName, slotId) => {
     setState((prev) => {
-      const current = prev.officeHoursByInstitution?.[institutionName];
+      const targetKey = resolveInstitutionKey(prev.officeHoursByInstitution, institutionName);
+      const current = targetKey ? prev.officeHoursByInstitution?.[targetKey] : null;
       if (!current) return prev;
       return {
         ...prev,
         officeHoursByInstitution: {
           ...prev.officeHoursByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...current,
             availabilitySlots: current.availabilitySlots.filter((s) => s.id !== slotId),
           },
@@ -1883,38 +2820,60 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const bookOfficeHourSlot = (institutionName, booking) => {
+  const bookOfficeHourSlot = (institutionName, booking, options = {}) => {
+    const today = getCurrentIsoDate(new Date());
+    const bkId = nextUid('bk');
+    const eventKey = options?.eventKey || `oh-book-${bkId}`;
     setState((prev) => {
-      const current = prev.officeHoursByInstitution?.[institutionName] || {
+      const targetKey =
+        resolveInstitutionKey(prev.officeHoursByInstitution, institutionName) ||
+        canonicalizeInstitutionName(institutionName);
+      if (!targetKey) return prev;
+      const current = prev.officeHoursByInstitution?.[targetKey] || {
         availabilitySlots: [],
         bookings: [],
       };
+      const matchedSlot = (current.availabilitySlots || []).find(
+        (s) => s.id === booking.slotId
+      );
+      const projKey = resolveInstitutionKey(prev.projectsByInstitution, targetKey);
+      const proj = projKey ? prev.projectsByInstitution[projKey] : null;
+      const recipientEmail = matchedSlot?.supervisorEmail || proj?.supervisorEmail || '';
+
+      const nextNotifications = recipientEmail
+        ? emitActivityNotificationPure(prev, {
+            roleKey: 'supervisor',
+            institutionName: targetKey,
+            recipientEmail,
+            category: 'Messages',
+            title: 'New office hour booking request',
+            body: `${booking.studentName} requested ${booking.meetingDate} (${booking.timeRange}): ${booking.topic}`,
+            targetPath: '/supervisor/office-hours',
+            eventKey,
+          })
+        : prev.notifications;
+
       return {
         ...prev,
         officeHoursByInstitution: {
           ...prev.officeHoursByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...current,
             bookings: [
               {
-                id: `bk-${Date.now()}`,
+                id: bkId,
                 status: 'Pending',
                 supervisorNote: '',
-                createdAt: new Date().toISOString().slice(0, 10),
+                createdAt: today,
                 ...booking,
               },
               ...current.bookings,
             ],
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'supervisor',
-      'New office hour booking request',
-      `${booking.studentName} requested ${booking.meetingDate} (${booking.timeRange}): ${booking.topic}`,
-      '/supervisor/office-hours'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
@@ -1927,44 +2886,96 @@ export function DemoAppStateProvider({ children }) {
     });
   };
 
-  const updateOfficeHourBooking = (institutionName, bookingId, status, supervisorNote = '') => {
+  const updateOfficeHourBooking = (
+    institutionName,
+    bookingId,
+    status,
+    supervisorNote = '',
+    options = {}
+  ) => {
+    const nonce = nextUid('bkstat');
+    const eventKey = options?.eventKey || `oh-booking-${bookingId}-${status}-${nonce}`;
     let targetStudent = 'Student';
     let targetDate = '';
     setState((prev) => {
-      const current = prev.officeHoursByInstitution?.[institutionName];
+      const targetKey = resolveInstitutionKey(prev.officeHoursByInstitution, institutionName);
+      const current = targetKey ? prev.officeHoursByInstitution?.[targetKey] : null;
       if (!current) return prev;
+      const targetBooking = current.bookings.find((b) => b.id === bookingId);
+      if (!targetBooking) return prev;
+      if (
+        targetBooking.status === status &&
+        (!supervisorNote || targetBooking.supervisorNote === supervisorNote)
+      ) {
+        return prev;
+      }
+
+      targetStudent = targetBooking.studentName || 'Student';
+      targetDate = targetBooking.meetingDate || '';
+
+      const isStudentCancel =
+        options?.actorRole === 'student' ||
+        (status === 'Cancelled' && supervisorNote === 'Cancelled by student.');
+
+      let nextNotifications = prev.notifications;
+      if (isStudentCancel) {
+        const matchedSlot = (current.availabilitySlots || []).find(
+          (s) => s.id === targetBooking.slotId
+        );
+        const projKey = resolveInstitutionKey(prev.projectsByInstitution, targetKey);
+        const proj = projKey ? prev.projectsByInstitution[projKey] : null;
+        const supervisorEmail = matchedSlot?.supervisorEmail || proj?.supervisorEmail || '';
+        if (supervisorEmail) {
+          nextNotifications = emitActivityNotificationPure(prev, {
+            roleKey: 'supervisor',
+            institutionName: targetKey,
+            recipientEmail: supervisorEmail,
+            category: 'Governance',
+            title: `Office hour cancelled by ${targetStudent}`,
+            body: `${targetDate ? `${targetDate} (${targetBooking.timeRange || ''}): ` : ''}Student cancelled the scheduled consultation.`,
+            targetPath: '/supervisor/office-hours',
+            eventKey,
+          });
+        }
+      } else if (targetBooking.studentEmail) {
+        nextNotifications = emitActivityNotificationPure(prev, {
+          roleKey: 'student',
+          institutionName: targetKey,
+          recipientEmail: targetBooking.studentEmail,
+          category: 'Governance',
+          title: `Office hour booking ${status}`,
+          body: `${targetDate ? `${targetDate}: ` : ''}${supervisorNote || `Your appointment status is now ${status}.`}`,
+          targetPath: '/student/office-hours',
+          eventKey,
+        });
+      }
+
       return {
         ...prev,
         officeHoursByInstitution: {
           ...prev.officeHoursByInstitution,
-          [institutionName]: {
+          [targetKey]: {
             ...current,
-            bookings: current.bookings.map((b) => {
-              if (b.id !== bookingId) return b;
-              targetStudent = b.studentName;
-              targetDate = b.meetingDate;
-              return {
-                ...b,
-                status,
-                supervisorNote: supervisorNote || b.supervisorNote,
-              };
-            }),
+            bookings: current.bookings.map((b) =>
+              b.id === bookingId
+                ? {
+                    ...b,
+                    status,
+                    supervisorNote: supervisorNote || b.supervisorNote,
+                  }
+                : b
+            ),
           },
         },
+        notifications: nextNotifications,
       };
     });
-    pushNotification(
-      'student',
-      `Office hour booking ${status}`,
-      `${targetDate ? `${targetDate}: ` : ''}${supervisorNote || `Your appointment status is now ${status}.`}`,
-      '/student/office-hours'
-    );
     recordActivity({
       roleScope: 'all',
       institutionName,
       category: 'Governance',
-      actor: 'Supervisor',
-      actorRole: 'Supervisor',
+      actor: supervisorNote === 'Cancelled by student.' ? targetStudent : 'Supervisor',
+      actorRole: supervisorNote === 'Cancelled by student.' ? 'Student' : 'Supervisor',
       action: `Marked ${targetStudent}'s office hour booking as ${status}`,
       detail: supervisorNote || `Scheduled date: ${targetDate}`,
       targetPath: '/supervisor/office-hours',
@@ -1978,6 +2989,9 @@ export function DemoAppStateProvider({ children }) {
         resetDemoState,
         markNotificationRead,
         markAllNotificationsRead,
+        getScopedNotificationPreferences,
+        updateNotificationPreferences,
+        syncDeadlineReminders,
         updateUserProfile,
         addProjectTask,
         toggleProjectTask,
@@ -1997,6 +3011,7 @@ export function DemoAppStateProvider({ children }) {
         updateInstitutionInfo,
         addInstitutionDepartment,
         addAcademicSession,
+        activateAcademicSession,
         decideMembershipRequest,
         createSupervisorInvite,
         assignSupervisorToProject,

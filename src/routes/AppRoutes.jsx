@@ -1,35 +1,35 @@
 import { useEffect } from 'react';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import ProtectedDemoRoute from '../components/auth/ProtectedDemoRoute';
 import HomePage from '../pages/HomePage';
-import InstitutionRegisterPage from '../pages/InstitutionRegisterPage';
 import LoginPage from '../pages/LoginPage';
 import NotFoundPage from '../pages/NotFoundPage';
 import PortalPreviewPage from '../pages/PortalPreviewPage';
-import RegisterHubPage from '../pages/RegisterHubPage';
 import StudentRegisterPage from '../pages/StudentRegisterPage';
 import SupervisorRegisterPage from '../pages/SupervisorRegisterPage';
+import AdminLoginPage from '../pages/auth/AdminLoginPage';
+import StudentLoginPage from '../pages/auth/StudentLoginPage';
+import SupervisorLoginPage from '../pages/auth/SupervisorLoginPage';
 import InstitutionDashboardPage from '../pages/dashboards/InstitutionDashboardPage';
-import PlatformDashboardPage from '../pages/dashboards/PlatformDashboardPage';
 import StudentDashboardPage from '../pages/dashboards/StudentDashboardPage';
 import SupervisorDashboardPage from '../pages/dashboards/SupervisorDashboardPage';
 import InstitutionApprovalsPage from '../pages/portals/institution/InstitutionApprovalsPage';
 import InstitutionProjectsPage from '../pages/portals/institution/InstitutionProjectsPage';
+import InstitutionProfilePage from '../pages/portals/institution/InstitutionProfilePage';
 import InstitutionReportsPage from '../pages/portals/institution/InstitutionReportsPage';
 import InstitutionStructurePage from '../pages/portals/institution/InstitutionStructurePage';
-import PlatformApplicationsPage from '../pages/portals/platform/PlatformApplicationsPage';
-import PlatformGovernancePage from '../pages/portals/platform/PlatformGovernancePage';
-import PlatformInstitutionsPage from '../pages/portals/platform/PlatformInstitutionsPage';
 import StudentDocumentsPage from '../pages/portals/student/StudentDocumentsPage';
 import StudentJournalsPage from '../pages/portals/student/StudentJournalsPage';
 import StudentMessagesReportsPage from '../pages/portals/student/StudentMessagesReportsPage';
 import StudentMilestonesPage from '../pages/portals/student/StudentMilestonesPage';
 import StudentOfficeHoursPage from '../pages/portals/student/StudentOfficeHoursPage';
+import StudentProfilePage from '../pages/portals/student/StudentProfilePage';
 import StudentTasksPage from '../pages/portals/student/StudentTasksPage';
 import SupervisorJournalsPage from '../pages/portals/supervisor/SupervisorJournalsPage';
 import SupervisorMessagesReportsPage from '../pages/portals/supervisor/SupervisorMessagesReportsPage';
 import SupervisorMilestonesPage from '../pages/portals/supervisor/SupervisorMilestonesPage';
 import SupervisorOfficeHoursPage from '../pages/portals/supervisor/SupervisorOfficeHoursPage';
+import SupervisorProfilePage from '../pages/portals/supervisor/SupervisorProfilePage';
 import SupervisorReviewsPage from '../pages/portals/supervisor/SupervisorReviewsPage';
 import SupervisorStudentsPage from '../pages/portals/supervisor/SupervisorStudentsPage';
 
@@ -50,6 +50,9 @@ export default function AppRoutes() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/login/student" element={<StudentLoginPage />} />
+        <Route path="/login/supervisor" element={<SupervisorLoginPage />} />
+        <Route path="/login/admin" element={<AdminLoginPage />} />
         <Route
           path="/portal-preview"
           element={
@@ -116,6 +119,14 @@ export default function AppRoutes() {
             </ProtectedDemoRoute>
           }
         />
+        <Route
+          path="/student/profile"
+          element={
+            <ProtectedDemoRoute allowedRoles={['student']}>
+              <StudentProfilePage />
+            </ProtectedDemoRoute>
+          }
+        />
 
         {/* Supervisor Portal Routes */}
         <Route
@@ -174,10 +185,18 @@ export default function AppRoutes() {
             </ProtectedDemoRoute>
           }
         />
-
-        {/* Institution Admin Portal Routes */}
         <Route
-          path="/institution"
+          path="/supervisor/profile"
+          element={
+            <ProtectedDemoRoute allowedRoles={['supervisor']}>
+              <SupervisorProfilePage />
+            </ProtectedDemoRoute>
+          }
+        />
+
+        {/* Institution Admin Portal Routes (/admin/*) */}
+        <Route
+          path="/admin"
           element={
             <ProtectedDemoRoute allowedRoles={['institution_admin']}>
               <InstitutionDashboardPage />
@@ -185,7 +204,7 @@ export default function AppRoutes() {
           }
         />
         <Route
-          path="/institution/structure"
+          path="/admin/structure"
           element={
             <ProtectedDemoRoute allowedRoles={['institution_admin']}>
               <InstitutionStructurePage />
@@ -193,7 +212,7 @@ export default function AppRoutes() {
           }
         />
         <Route
-          path="/institution/approvals"
+          path="/admin/approvals"
           element={
             <ProtectedDemoRoute allowedRoles={['institution_admin']}>
               <InstitutionApprovalsPage />
@@ -201,7 +220,7 @@ export default function AppRoutes() {
           }
         />
         <Route
-          path="/institution/projects"
+          path="/admin/projects"
           element={
             <ProtectedDemoRoute allowedRoles={['institution_admin']}>
               <InstitutionProjectsPage />
@@ -209,50 +228,49 @@ export default function AppRoutes() {
           }
         />
         <Route
-          path="/institution/reports"
+          path="/admin/reports"
           element={
             <ProtectedDemoRoute allowedRoles={['institution_admin']}>
               <InstitutionReportsPage />
             </ProtectedDemoRoute>
           }
         />
-
-        {/* Platform Admin Portal Routes */}
         <Route
-          path="/platform"
+          path="/admin/profile"
           element={
-            <ProtectedDemoRoute allowedRoles={['platform_admin']}>
-              <PlatformDashboardPage />
-            </ProtectedDemoRoute>
-          }
-        />
-        <Route
-          path="/platform/institutions"
-          element={
-            <ProtectedDemoRoute allowedRoles={['platform_admin']}>
-              <PlatformInstitutionsPage />
-            </ProtectedDemoRoute>
-          }
-        />
-        <Route
-          path="/platform/applications"
-          element={
-            <ProtectedDemoRoute allowedRoles={['platform_admin']}>
-              <PlatformApplicationsPage />
-            </ProtectedDemoRoute>
-          }
-        />
-        <Route
-          path="/platform/governance"
-          element={
-            <ProtectedDemoRoute allowedRoles={['platform_admin']}>
-              <PlatformGovernancePage />
+            <ProtectedDemoRoute allowedRoles={['institution_admin']}>
+              <InstitutionProfilePage />
             </ProtectedDemoRoute>
           }
         />
 
-        <Route path="/register" element={<RegisterHubPage />} />
-        <Route path="/register/institution" element={<InstitutionRegisterPage />} />
+        {/* Legacy /institution/* Compatibility Redirects */}
+        <Route path="/institution" element={<Navigate to="/admin" replace />} />
+        <Route
+          path="/institution/structure"
+          element={<Navigate to="/admin/structure" replace />}
+        />
+        <Route
+          path="/institution/approvals"
+          element={<Navigate to="/admin/approvals" replace />}
+        />
+        <Route
+          path="/institution/projects"
+          element={<Navigate to="/admin/projects" replace />}
+        />
+        <Route
+          path="/institution/reports"
+          element={<Navigate to="/admin/reports" replace />}
+        />
+        <Route path="/institution/*" element={<Navigate to="/admin" replace />} />
+
+        {/* Retired Platform Admin Routes (safely routed through ProtectedDemoRoute via /portal-preview) */}
+        <Route path="/platform" element={<Navigate to="/portal-preview" replace />} />
+        <Route path="/platform/*" element={<Navigate to="/portal-preview" replace />} />
+
+        {/* Registration Routes */}
+        <Route path="/register" element={<Navigate to="/register/student" replace />} />
+        <Route path="/register/institution" element={<Navigate to="/" replace />} />
         <Route path="/register/student" element={<StudentRegisterPage />} />
         <Route path="/register/supervisor" element={<SupervisorRegisterPage />} />
         <Route path="*" element={<NotFoundPage />} />

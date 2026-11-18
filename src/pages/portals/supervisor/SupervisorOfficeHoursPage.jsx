@@ -6,7 +6,12 @@ import Button from '../../../components/ui/Button';
 import EmptyState from '../../../components/ui/EmptyState';
 import FormField from '../../../components/ui/FormField';
 import StatusAlert from '../../../components/ui/StatusAlert';
-import { useDemoAppState } from '../../../context/DemoAppStateContext';
+import { GRACE_POLYTECHNIC_BRAND } from '../../../config/gracePolytechnic';
+import {
+  resolveInstitutionKey,
+  resolveWorkspaceInstitution,
+  useDemoAppState,
+} from '../../../context/DemoAppStateContext';
 import { useDemoSession } from '../../../context/DemoSessionContext';
 import { useToast } from '../../../context/ToastContext';
 import { getPortalNavItems } from '../../../utils/roleRouting';
@@ -25,13 +30,13 @@ export default function SupervisorOfficeHoursPage() {
     updateOfficeHourBooking,
   } = useDemoAppState();
 
-  const institutionName = activeMembership?.institutionName || 'University of Westbridge';
-  const officeData =
-    state.officeHoursByInstitution?.[institutionName] ||
-    state.officeHoursByInstitution?.['University of Westbridge'] || {
-      availabilitySlots: [],
-      bookings: [],
-    };
+  const institutionName = resolveWorkspaceInstitution(activeMembership, session);
+  const officeKey = resolveInstitutionKey(state.officeHoursByInstitution, institutionName);
+  const officeData = (officeKey && state.officeHoursByInstitution?.[officeKey]) || {
+    availabilitySlots: [],
+    bookings: [],
+  };
+  const mutationInstitution = officeKey || institutionName;
 
   const [dayOfWeek, setDayOfWeek] = useState('Monday');
   const [startTime, setStartTime] = useState('10:00');
@@ -53,9 +58,10 @@ export default function SupervisorOfficeHoursPage() {
       return;
     }
 
-    addOfficeHourSlot(institutionName, {
+    addOfficeHourSlot(mutationInstitution, {
       supervisorName: session?.fullName || 'Dr. Samuel Osei',
-      supervisorEmail: session?.email || 'supervisor.demo@westbridge.edu',
+      supervisorEmail:
+        session?.email || `supervisor.demo@${GRACE_POLYTECHNIC_BRAND.officialDomain}`,
       dayOfWeek,
       startTime,
       endTime,
@@ -78,7 +84,7 @@ export default function SupervisorOfficeHoursPage() {
 
   const handleBookingDecision = (booking, nextStatus) => {
     const note = (noteDrafts[booking.id] || '').trim();
-    updateOfficeHourBooking(institutionName, booking.id, nextStatus, note);
+    updateOfficeHourBooking(mutationInstitution, booking.id, nextStatus, note);
     setNoteDrafts((prev) => ({ ...prev, [booking.id]: '' }));
     showToast({
       type: nextStatus === 'Cancelled' ? 'warning' : 'success',
@@ -91,11 +97,11 @@ export default function SupervisorOfficeHoursPage() {
   return (
     <PortalLayout navItems={getPortalNavItems('supervisor')}>
       <div className="space-y-1">
-        <p className="font-mono text-xs font-medium text-[#2563EB]">{institutionName}</p>
-        <h1 className="font-display text-2xl font-bold text-[#172554]">
+        <p className="font-mono text-xs font-medium text-[var(--accent-primary)]">{institutionName}</p>
+        <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">
           Supervisor Office Hours &amp; Availability
         </h1>
-        <p className="text-sm text-[#64748B]">
+        <p className="text-sm text-[var(--text-secondary)]">
           Publish weekly consultation slots that sync immediately with the Student Scheduling UI, and confirm incoming bookings.
         </p>
       </div>
@@ -110,11 +116,11 @@ export default function SupervisorOfficeHoursPage() {
         {/* Publish Weekly Availability Slot */}
         <form
           onSubmit={handleAddSlot}
-          className="lg:col-span-5 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4 self-start"
+          className="lg:col-span-5 spt-surface rounded-2xl p-5 sm:p-6 space-y-4 self-start"
         >
           <div className="flex items-center gap-2">
-            <CalendarClock className="h-4 w-4 text-[#2563EB]" aria-hidden="true" />
-            <h2 className="font-display text-lg font-bold text-[#172554]">
+            <CalendarClock className="h-4 w-4 text-[var(--accent-primary)]" aria-hidden="true" />
+            <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
               Add Weekly Availability Slot
             </h2>
           </div>
@@ -181,8 +187,8 @@ export default function SupervisorOfficeHoursPage() {
             label={mode === 'Video Call' ? 'Video meeting URL' : 'Office room or meeting link'}
             placeholder={
               mode === 'Video Call'
-                ? 'https://meet.westbridge.edu/dr-osei'
-                : 'e.g. CS Building, Room 4.12'
+                ? `https://meet.${GRACE_POLYTECHNIC_BRAND.officialDomain}/dr-osei`
+                : 'e.g. SET Block, Room 2.04'
             }
             value={locationOrLink}
             onChange={(e) => setLocationOrLink(e.target.value)}
@@ -207,12 +213,12 @@ export default function SupervisorOfficeHoursPage() {
 
         {/* Weekly Slots + Bookings Queue */}
         <div className="lg:col-span-7 space-y-6">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4">
+          <section className="spt-surface rounded-2xl p-5 sm:p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-display text-lg font-bold text-[#172554]">
+              <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
                 Published Weekly Slots ({officeData.availabilitySlots.length})
               </h2>
-              <span className="font-mono text-xs text-[#2563EB]">
+              <span className="font-mono text-xs font-semibold text-[var(--accent-primary)]">
                 Synced to Student UI
               </span>
             </div>
@@ -228,23 +234,21 @@ export default function SupervisorOfficeHoursPage() {
                 {officeData.availabilitySlots.map((slot) => (
                   <div
                     key={slot.id}
-                    className={`rounded-xl border p-4 space-y-2.5 ${
-                      slot.active
-                        ? 'border-slate-200 bg-[#F8FAFC]'
-                        : 'border-slate-200 bg-slate-50/50 opacity-75'
+                    className={`rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 space-y-2.5 ${
+                      slot.active ? '' : 'opacity-70'
                     }`}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <p className="font-display text-sm sm:text-base font-bold text-[#172554]">
+                        <p className="font-display text-sm sm:text-base font-bold text-[var(--text-primary)]">
                           {slot.dayOfWeek} · {slot.startTime} – {slot.endTime}
                         </p>
-                        <p className="text-xs text-[#64748B] flex flex-wrap items-center gap-2 mt-0.5">
+                        <p className="text-xs text-[var(--text-secondary)] flex flex-wrap items-center gap-2 mt-0.5">
                           <span className="inline-flex items-center gap-1">
                             {slot.mode === 'Video Call' ? (
-                              <Video className="h-3.5 w-3.5 text-[#2563EB]" aria-hidden="true" />
+                              <Video className="h-3.5 w-3.5 text-[var(--accent-primary)]" aria-hidden="true" />
                             ) : (
-                              <MapPin className="h-3.5 w-3.5 text-[#2563EB]" aria-hidden="true" />
+                              <MapPin className="h-3.5 w-3.5 text-[var(--accent-primary)]" aria-hidden="true" />
                             )}
                             {slot.mode}
                           </span>
@@ -257,21 +261,21 @@ export default function SupervisorOfficeHoursPage() {
                         <button
                           type="button"
                           onClick={() => {
-                            toggleOfficeHourSlot(institutionName, slot.id);
+                            toggleOfficeHourSlot(mutationInstitution, slot.id);
                             showToast({
                               type: 'info',
                               title: slot.active ? 'Slot paused' : 'Slot reactivated',
                               message: `${slot.dayOfWeek} ${slot.startTime}–${slot.endTime}`,
                             });
                           }}
-                          className="min-h-[34px] rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-[#172554] hover:bg-slate-50 cursor-pointer"
+                          className="min-h-[34px] rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] cursor-pointer transition-colors"
                         >
                           {slot.active ? 'Pause' : 'Activate'}
                         </button>
                         <button
                           type="button"
                           onClick={() => {
-                            deleteOfficeHourSlot(institutionName, slot.id);
+                            deleteOfficeHourSlot(mutationInstitution, slot.id);
                             showToast({
                               type: 'info',
                               title: 'Slot removed',
@@ -279,17 +283,17 @@ export default function SupervisorOfficeHoursPage() {
                             });
                           }}
                           aria-label={`Delete ${slot.dayOfWeek} slot`}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-700 cursor-pointer"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-red-500/10 hover:text-red-700 dark:hover:text-red-400 cursor-pointer"
                         >
                           <Trash2 className="h-4 w-4" aria-hidden="true" />
                         </button>
                       </div>
                     </div>
 
-                    <p className="font-mono text-xs text-[#172554] break-all">
+                    <p className="font-mono text-xs text-[var(--text-primary)] break-all">
                       {slot.locationOrLink}
                     </p>
-                    {slot.notes && <p className="text-xs text-[#64748B]">{slot.notes}</p>}
+                    {slot.notes && <p className="text-xs text-[var(--text-muted)]">{slot.notes}</p>}
                   </div>
                 ))}
               </div>
@@ -297,8 +301,8 @@ export default function SupervisorOfficeHoursPage() {
           </section>
 
           {/* Student Bookings Queue */}
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4">
-            <h2 className="font-display text-lg font-bold text-[#172554]">
+          <section className="spt-surface rounded-2xl p-5 sm:p-6 space-y-4">
+            <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
               Student Appointment Requests ({officeData.bookings.length})
             </h2>
 
@@ -312,30 +316,31 @@ export default function SupervisorOfficeHoursPage() {
                 {officeData.bookings.map((bk) => (
                   <article
                     key={bk.id}
-                    className="rounded-xl border border-slate-200 bg-[#F8FAFC] p-4 space-y-3"
+                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 space-y-3"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="space-y-0.5">
-                        <p className="text-sm font-bold text-[#172554]">{bk.studentName}</p>
-                        <p className="font-mono text-xs text-[#64748B] tabular-nums">
+                        <p className="text-sm font-bold text-[var(--text-primary)]">{bk.studentName}</p>
+                        <p className="font-mono text-xs text-[var(--text-muted)] tabular-nums">
                           {bk.dayOfWeek}, {bk.meetingDate} · {bk.timeRange} · {bk.mode}
                         </p>
                       </div>
                       <StatusLabel status={bk.status} />
                     </div>
 
-                    <p className="text-xs sm:text-sm text-[#172554]">
+                    <p className="text-xs sm:text-sm text-[var(--text-primary)]">
                       <strong className="font-semibold">Agenda:</strong> {bk.topic}
                     </p>
 
                     {bk.supervisorNote && (
-                      <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-[#64748B]">
-                        <strong className="text-[#172554]">Supervisor Note:</strong> {bk.supervisorNote}
+                      <p className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                        <strong className="text-[var(--text-primary)]">Supervisor Note:</strong>{' '}
+                        {bk.supervisorNote}
                       </p>
                     )}
 
                     {(bk.status === 'Pending' || bk.status === 'Confirmed') && (
-                      <div className="space-y-2 border-t border-slate-200/80 pt-3">
+                      <div className="space-y-2 border-t border-[var(--border-subtle)] pt-3">
                         <input
                           type="text"
                           value={noteDrafts[bk.id] || ''}
@@ -343,7 +348,8 @@ export default function SupervisorOfficeHoursPage() {
                             setNoteDrafts((prev) => ({ ...prev, [bk.id]: e.target.value }))
                           }
                           placeholder="Optional note or meeting link reminder for student..."
-                          className="min-h-[38px] w-full rounded-lg border border-slate-300 bg-white px-3 text-base sm:text-xs text-[#172554] focus:border-[#2563EB] focus:outline-none"
+                          aria-label={`Supervisor note for ${bk.studentName}`}
+                          className="min-h-[38px] w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 text-base sm:text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:outline-none"
                         />
                         <div className="flex flex-wrap gap-2">
                           {bk.status === 'Pending' && (
@@ -388,3 +394,4 @@ export default function SupervisorOfficeHoursPage() {
     </PortalLayout>
   );
 }
+

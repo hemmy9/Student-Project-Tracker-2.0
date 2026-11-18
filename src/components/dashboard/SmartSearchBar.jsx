@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Search, X } from 'lucide-react';
-import { useDemoAppState } from '../../context/DemoAppStateContext';
+import {
+  GRACE_INSTITUTION_NAME,
+  resolveInstitutionKey,
+  resolveWorkspaceInstitution,
+  useDemoAppState,
+} from '../../context/DemoAppStateContext';
+import { useDemoSession } from '../../context/DemoSessionContext';
 import { useAuthGuard } from '../../hooks/useAuthGuard';
-import { getPortalNavItems } from '../../utils/roleRouting';
+import { getPortalNavItems, getProfilePathForRole } from '../../utils/roleRouting';
 
 export default function SmartSearchBar() {
   const { activeMembership, isAuthenticated } = useAuthGuard();
+  const { session } = useDemoSession();
   const { state } = useDemoAppState();
   const navigate = useNavigate();
 
@@ -16,7 +23,7 @@ export default function SmartSearchBar() {
   const inputRef = useRef(null);
 
   const roleKey = activeMembership?.roleKey || '';
-  const institutionName = activeMembership?.institutionName || 'University of Westbridge';
+  const institutionName = resolveWorkspaceInstitution(activeMembership, session);
 
   // Keyboard shortcut: "/" focuses smart search when not already typing in an input
   useEffect(() => {
@@ -61,9 +68,21 @@ export default function SmartSearchBar() {
       });
     });
 
-    const project =
-      state.projectsByInstitution[institutionName] ||
-      state.projectsByInstitution['University of Westbridge'];
+    const profilePath = getProfilePathForRole(roleKey);
+    if (profilePath) {
+      items.push({
+        id: 'nav-profile',
+        group: 'Portal Pages',
+        title: 'My Profile',
+        subtitle: `Navigate to ${profilePath} · Identity & editable contact info`,
+        to: profilePath,
+      });
+    }
+
+    const projectKey = resolveInstitutionKey(state.projectsByInstitution, institutionName);
+    const project = projectKey ? state.projectsByInstitution[projectKey] : null;
+    const officeKey = resolveInstitutionKey(state.officeHoursByInstitution, institutionName);
+    const office = officeKey ? state.officeHoursByInstitution[officeKey] : null;
 
     if (roleKey === 'student' && project) {
       project.tasks.forEach((t) => {
@@ -84,7 +103,6 @@ export default function SmartSearchBar() {
           to: '/student/milestones',
         });
       });
-      const office = state.officeHoursByInstitution?.[institutionName];
       (office?.availabilitySlots || [])
         .filter((s) => s.active)
         .forEach((s) => {
@@ -126,30 +144,31 @@ export default function SmartSearchBar() {
           to: '/supervisor/students',
         });
       }
-      state.supervisorExtraStudents.forEach((stu) => {
-        items.push({
-          id: `stu-${stu.id}`,
-          group: 'Assigned Students',
-          title: `${stu.name} (${stu.studentCode})`,
-          subtitle: `${stu.attentionStatus} · ${stu.projectTitle}`,
-          to: '/supervisor/students',
+      if (institutionName === GRACE_INSTITUTION_NAME) {
+        state.supervisorExtraStudents.forEach((stu) => {
+          items.push({
+            id: `stu-${stu.id}`,
+            group: 'Assigned Students',
+            title: `${stu.name} (${stu.studentCode})`,
+            subtitle: `${stu.attentionStatus} · ${stu.projectTitle}`,
+            to: '/supervisor/students',
+          });
         });
-      });
-      state.supervisorExtraSubmissions.forEach((rev) => {
-        items.push({
-          id: `rev-${rev.id}`,
-          group: 'Review Queue',
-          title: rev.documentTitle,
-          subtitle: `${rev.studentName} · ${rev.status}`,
-          to: '/supervisor/reviews',
+        state.supervisorExtraSubmissions.forEach((rev) => {
+          items.push({
+            id: `rev-${rev.id}`,
+            group: 'Review Queue',
+            title: rev.documentTitle,
+            subtitle: `${rev.studentName} · ${rev.status}`,
+            to: '/supervisor/reviews',
+          });
         });
-      });
+      }
     }
 
     if (roleKey === 'institution_admin') {
-      const inst =
-        state.institutionsState[institutionName] ||
-        state.institutionsState['University of Westbridge'];
+      const instKey = resolveInstitutionKey(state.institutionsState, institutionName);
+      const inst = instKey ? state.institutionsState[instKey] : null;
       if (inst) {
         inst.departments.forEach((d) => {
           items.push({
@@ -157,7 +176,7 @@ export default function SmartSearchBar() {
             group: 'Departments',
             title: d.name,
             subtitle: `${d.students} students · ${d.supervisors} supervisors`,
-            to: '/institution/structure',
+            to: '/admin/structure',
           });
         });
         inst.membershipRequests.forEach((r) => {
@@ -166,7 +185,7 @@ export default function SmartSearchBar() {
             group: 'Membership Approvals',
             title: `${r.name} (${r.role})`,
             subtitle: `${r.status} · ${r.identifier}`,
-            to: '/institution/approvals',
+            to: '/admin/approvals',
           });
         });
         inst.projects.forEach((p) => {
@@ -175,25 +194,10 @@ export default function SmartSearchBar() {
             group: 'Institutional Projects',
             title: `${p.code}: ${p.title}`,
             subtitle: `${p.studentName} · Supervisor: ${p.supervisorName}`,
-            to: '/institution/projects',
+            to: '/admin/projects',
           });
         });
       }
-    }
-
-    if (roleKey === 'platform_admin') {
-      state.platformState.institutions.forEach((inst) => {
-        items.push({
-          id: `plat-inst-${inst.id}`,
-          group: 'Institutions',
-          title: inst.institutionName,
-          subtitle: `${inst.status} · ${inst.domain}`,
-          to:
-            inst.status === 'Pending Review'
-              ? '/platform/applications'
-              : '/platform/institutions',
-        });
-      });
     }
 
     return items;
@@ -218,7 +222,7 @@ export default function SmartSearchBar() {
     <div ref={containerRef} className="relative print:hidden">
       <div className="relative flex items-center">
         <Search
-          className="pointer-events-none absolute left-3.5 h-4 w-4 text-[#64748B]"
+          className="pointer-events-none absolute left-3.5 h-4 w-4 text-[var(--text-muted)]"
           aria-hidden="true"
         />
         <input
@@ -232,7 +236,7 @@ export default function SmartSearchBar() {
           }}
           placeholder={`Smart search (${activeMembership.roleLabel} workspace)...`}
           aria-label="Smart workspace search"
-          className="min-h-[44px] w-full rounded-xl border border-slate-200 bg-white pl-10 pr-20 text-base sm:text-sm text-[#172554] placeholder:text-slate-400 focus:border-[#2563EB] focus:outline-none"
+          className="min-h-[44px] w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] pl-10 pr-20 text-base sm:text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:outline-none"
         />
         <div className="absolute right-2.5 flex items-center gap-1.5">
           {query && (
@@ -243,12 +247,12 @@ export default function SmartSearchBar() {
                 inputRef.current?.focus();
               }}
               aria-label="Clear search"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-[#172554] cursor-pointer"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)] cursor-pointer"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           )}
-          <kbd className="hidden sm:inline-flex items-center rounded border border-slate-200 bg-[#F8FAFC] px-1.5 py-0.5 font-mono text-[11px] font-medium text-[#64748B]">
+          <kbd className="hidden sm:inline-flex items-center rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-1.5 py-0.5 font-mono text-[11px] font-medium text-[var(--text-muted)]">
             /
           </kbd>
         </div>
@@ -258,16 +262,16 @@ export default function SmartSearchBar() {
         <div
           role="listbox"
           aria-label="Smart search suggestions"
-          className="absolute left-0 right-0 mt-2 max-h-80 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl z-30 space-y-1"
+          className="absolute left-0 right-0 mt-2 max-h-80 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2 shadow-xl z-30 space-y-1"
         >
-          <p className="px-3 py-1 text-[11px] font-semibold text-[#64748B]">
+          <p className="px-3 py-1 text-[11px] font-semibold text-[var(--text-muted)]">
             {query.trim()
               ? `Matching results in ${activeMembership.roleLabel} scope (${results.length})`
               : `Quick jump · ${activeMembership.roleLabel} workspace`}
           </p>
 
           {results.length === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-[#64748B]">
+            <p className="px-3 py-4 text-center text-xs text-[var(--text-muted)]">
               No items found for &ldquo;{query}&rdquo; in your current role scope.
             </p>
           ) : (
@@ -281,14 +285,14 @@ export default function SmartSearchBar() {
                   setQuery('');
                   navigate(item.to);
                 }}
-                className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-[#F8FAFC] cursor-pointer"
+                className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-[var(--bg-elevated)] cursor-pointer transition-colors"
               >
                 <div className="min-w-0">
-                  <p className="text-[11px] font-semibold text-[#2563EB]">{item.group}</p>
-                  <p className="text-sm font-semibold text-[#172554] truncate">{item.title}</p>
-                  <p className="text-xs text-[#64748B] truncate">{item.subtitle}</p>
+                  <p className="text-[11px] font-semibold text-[var(--accent-primary)]">{item.group}</p>
+                  <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{item.title}</p>
+                  <p className="text-xs text-[var(--text-muted)] truncate">{item.subtitle}</p>
                 </div>
-                <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                <ArrowRight className="h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
               </button>
             ))
           )}

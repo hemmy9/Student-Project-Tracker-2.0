@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import SmartSearchBar from '../dashboard/SmartSearchBar';
+import PortalBreadcrumb from './PortalBreadcrumb';
 import PortalHeader from './PortalHeader';
 import PublicFooter from './PublicFooter';
 
@@ -7,7 +8,7 @@ export default function PortalLayout({ navItems = [], children }) {
   const location = useLocation();
 
   return (
-    <div className="min-h-screen w-full flex flex-col bg-[#F8FAFC] text-[#172554]">
+    <div className="min-h-screen w-full flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] transition-colors duration-200">
       <PortalHeader />
 
       <div className="flex-1 w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-6">
@@ -16,7 +17,7 @@ export default function PortalLayout({ navItems = [], children }) {
             {/* Mobile horizontal scrollable navigation strip */}
             <nav
               aria-label="Portal sections"
-              className="lg:hidden flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1"
+              className="lg:hidden flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 print:hidden"
             >
               {navItems.map((item) => {
                 const isActive = location.pathname === item.to;
@@ -27,8 +28,8 @@ export default function PortalLayout({ navItems = [], children }) {
                     to={item.to}
                     className={`inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
                       isActive
-                        ? 'border-[#172554] bg-[#172554] text-white'
-                        : 'border-slate-200 bg-white text-[#64748B] hover:text-[#172554]'
+                        ? 'border-[#2563EB] bg-[#2563EB] text-white'
+                        : 'border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                     }`}
                   >
                     {Icon && <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />}
@@ -39,10 +40,10 @@ export default function PortalLayout({ navItems = [], children }) {
             </nav>
 
             {/* Desktop sidebar navigation */}
-            <aside className="hidden lg:block lg:col-span-3 xl:col-span-2">
+            <aside className="hidden lg:block lg:col-span-3 xl:col-span-2 print:hidden">
               <nav
                 aria-label="Portal sidebar"
-                className="rounded-2xl border border-slate-200 bg-white p-2.5 space-y-1"
+                className="rounded-2xl spt-surface p-2.5 space-y-1"
               >
                 {navItems.map((item) => {
                   const isActive = location.pathname === item.to;
@@ -53,8 +54,8 @@ export default function PortalLayout({ navItems = [], children }) {
                       to={item.to}
                       className={`flex min-h-[44px] items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-colors ${
                         isActive
-                          ? 'bg-[#172554] text-white'
-                          : 'text-[#64748B] hover:bg-slate-50 hover:text-[#172554]'
+                          ? 'bg-[#2563EB] text-white shadow-xs'
+                          : 'text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] hover:text-[var(--text-primary)]'
                       }`}
                     >
                       {Icon && <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />}
@@ -65,13 +66,15 @@ export default function PortalLayout({ navItems = [], children }) {
               </nav>
             </aside>
 
-            <main className="lg:col-span-9 xl:col-span-10 min-w-0 w-full space-y-6">
+            <main className="lg:col-span-9 xl:col-span-10 min-w-0 w-full space-y-5">
+              <PortalBreadcrumb />
               <SmartSearchBar />
               {children}
             </main>
           </div>
         ) : (
-          <main className="min-w-0 w-full space-y-6">
+          <main className="min-w-0 w-full space-y-5">
+            <PortalBreadcrumb />
             <SmartSearchBar />
             {children}
           </main>

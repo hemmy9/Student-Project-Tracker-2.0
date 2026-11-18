@@ -6,12 +6,16 @@ import Button from '../../../components/ui/Button';
 import EmptyState from '../../../components/ui/EmptyState';
 import FormField from '../../../components/ui/FormField';
 import StatusAlert from '../../../components/ui/StatusAlert';
-import { useDemoAppState } from '../../../context/DemoAppStateContext';
+import {
+  resolveInstitutionKey,
+  resolveWorkspaceInstitution,
+  useDemoAppState,
+} from '../../../context/DemoAppStateContext';
 import { useDemoSession } from '../../../context/DemoSessionContext';
 import { useToast } from '../../../context/ToastContext';
+import { isPastDeadline } from '../../../utils/dateHelper';
 import { getPortalNavItems } from '../../../utils/roleRouting';
 
-const TODAY_ISO = '2026-11-14';
 const STATUS_FILTERS = ['All', 'In Progress', 'Pending Review', 'Revision Requested', 'Approved'];
 
 export default function StudentMilestonesPage() {
@@ -25,10 +29,10 @@ export default function StudentMilestonesPage() {
     updateMilestoneDueDate,
   } = useDemoAppState();
 
-  const institutionName = activeMembership?.institutionName || 'University of Westbridge';
-  const project =
-    state.projectsByInstitution[institutionName] ||
-    state.projectsByInstitution['University of Westbridge'];
+  const institutionName = resolveWorkspaceInstitution(activeMembership, session);
+  const projectKey = resolveInstitutionKey(state.projectsByInstitution, institutionName);
+  const project = projectKey ? state.projectsByInstitution[projectKey] : null;
+  const mutationInstitution = projectKey || institutionName;
 
   const [statusFilter, setStatusFilter] = useState('All');
   const [title, setTitle] = useState('');
@@ -42,9 +46,12 @@ export default function StudentMilestonesPage() {
   const [editingDateId, setEditingDateId] = useState('');
   const [editingDateVal, setEditingDateVal] = useState('');
 
+  const milestones = project?.milestones || [];
+  const tasks = project?.tasks || [];
+
   const enrichedMilestones = useMemo(() => {
-    return project.milestones.map((ms, idx) => {
-      const linkedTasks = project.tasks.filter((t) => t.milestoneId === ms.id);
+    return milestones.map((ms, idx) => {
+      const linkedTasks = tasks.filter((t) => t.milestoneId === ms.id);
       const doneTasks = linkedTasks.filter((t) => t.completed).length;
       const pct =
         linkedTasks.length > 0
@@ -52,7 +59,7 @@ export default function StudentMilestonesPage() {
           : ms.status === 'Approved'
             ? 100
             : 0;
-      const isOverdue = ms.status !== 'Approved' && ms.dueDate < TODAY_ISO;
+      const isOverdue = ms.status !== 'Approved' && isPastDeadline(ms.dueDate);
       return {
         ...ms,
         phaseNumber: ms.phaseNumber || idx + 1,
@@ -64,7 +71,7 @@ export default function StudentMilestonesPage() {
         isOverdue,
       };
     });
-  }, [project.milestones, project.tasks]);
+  }, [milestones, tasks]);
 
   const filteredMilestones = useMemo(() => {
     if (statusFilter === 'All') return enrichedMilestones;
@@ -76,6 +83,18 @@ export default function StudentMilestonesPage() {
     .filter((m) => m.status === 'Approved')
     .reduce((sum, m) => sum + Number(m.weightPercent || 0), 0);
 
+  if (!project) {
+    return (
+      <PortalLayout navItems={getPortalNavItems('student')}>
+        <EmptyState
+          icon={Flag}
+          title="No active student project workspace"
+          description={`No student milestone record is assigned under ${institutionName}. Switch institution membership or reset demo data if needed.`}
+        />
+      </PortalLayout>
+    );
+  }
+
   const handleCreatePhase = (e) => {
     e.preventDefault();
     if (!title.trim() || !dueDate) {
@@ -84,7 +103,7 @@ export default function StudentMilestonesPage() {
     }
 
     const weightNum = Math.min(100, Math.max(5, Number(weightPercent) || 20));
-    addMilestone(institutionName, {
+    addMilestone(mutationInstitution, {
       title: title.trim(),
       description:
         description.trim() || 'Phase deliverables and documentation prepared for supervisor review.',
@@ -108,7 +127,7 @@ export default function StudentMilestonesPage() {
   };
 
   const handleRequestReview = (ms) => {
-    updateMilestoneStatus(institutionName, ms.id, 'Pending Review');
+    updateMilestoneStatus(mutationInstitution, ms.id, 'Pending Review');
     showToast({
       type: 'info',
       title: 'Review requested',
@@ -120,7 +139,7 @@ export default function StudentMilestonesPage() {
   const handlePostReply = (ms) => {
     const comment = (replyDrafts[ms.id] || '').trim();
     if (!comment) return;
-    addMilestoneFeedback(institutionName, ms.id, {
+    addMilestoneFeedback(mutationInstitution, ms.id, {
       authorName: session?.fullName || project.studentName,
       authorRole: 'student',
       comment,
@@ -137,7 +156,7 @@ export default function StudentMilestonesPage() {
 
   const handleSaveDate = (msId) => {
     if (!editingDateVal) return;
-    updateMilestoneDueDate(institutionName, msId, editingDateVal);
+    updateMilestoneDueDate(mutationInstitution, msId, editingDateVal);
     setEditingDateId('');
     setEditingDateVal('');
     showToast({
@@ -150,13 +169,13 @@ export default function StudentMilestonesPage() {
   return (
     <PortalLayout navItems={getPortalNavItems('student')}>
       <div className="space-y-1">
-        <p className="font-mono text-xs font-medium text-[#2563EB]">
+        <p className="font-mono text-xs font-medium text-[var(--accent-primary)]">
           {project.code} · {institutionName}
         </p>
-        <h1 className="font-display text-2xl font-bold text-[#172554]">
+        <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">
           Project Milestones &amp; Phase Feedback
         </h1>
-        <p className="text-sm text-[#64748B]">
+        <p className="text-sm text-[var(--text-secondary)]">
           Define your project phases, track weighted deliverables, and review supervisor feedback on each milestone.
         </p>
       </div>
@@ -169,30 +188,30 @@ export default function StudentMilestonesPage() {
 
       {/* Weighted Progress Overview */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-1">
-          <p className="text-xs font-medium text-[#64748B]">Defined Project Phases</p>
-          <p className="font-display text-2xl font-bold text-[#172554] tabular-nums">
+        <div className="spt-surface rounded-2xl p-5 space-y-1">
+          <p className="text-xs font-medium text-[var(--text-secondary)]">Defined Project Phases</p>
+          <p className="font-display text-2xl font-bold text-[var(--text-primary)] tabular-nums">
             {enrichedMilestones.length}
           </p>
-          <p className="text-xs text-[#64748B]">
+          <p className="text-xs text-[var(--text-muted)]">
             Total allocated weight: {totalWeight}%
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-1">
-          <p className="text-xs font-medium text-[#64748B]">Approved Weightage</p>
-          <p className="font-display text-2xl font-bold text-emerald-700 tabular-nums">
+        <div className="spt-surface rounded-2xl p-5 space-y-1">
+          <p className="text-xs font-medium text-[var(--text-secondary)]">Approved Weightage</p>
+          <p className="font-display text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
             {approvedWeight}%
           </p>
-          <p className="text-xs text-[#64748B]">
+          <p className="text-xs text-[var(--text-muted)]">
             {enrichedMilestones.filter((m) => m.status === 'Approved').length} signed off by supervisor
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-1">
-          <p className="text-xs font-medium text-[#64748B]">Supervisor Reviewer</p>
-          <p className="font-display text-lg font-bold text-[#172554] truncate">
+        <div className="spt-surface rounded-2xl p-5 space-y-1">
+          <p className="text-xs font-medium text-[var(--text-secondary)]">Supervisor Reviewer</p>
+          <p className="font-display text-lg font-bold text-[var(--text-primary)] truncate">
             {project.supervisorName}
           </p>
-          <p className="text-xs text-[#64748B]">Synced with Supervisor Milestones Portal</p>
+          <p className="text-xs text-[var(--text-muted)]">Synced with Supervisor Milestones Portal</p>
         </div>
       </div>
 
@@ -200,11 +219,11 @@ export default function StudentMilestonesPage() {
         {/* Define New Project Phase Form */}
         <form
           onSubmit={handleCreatePhase}
-          className="lg:col-span-4 rounded-2xl border border-slate-200 bg-white p-5 space-y-4 self-start"
+          className="lg:col-span-4 spt-surface rounded-2xl p-5 space-y-4 self-start"
         >
           <div className="flex items-center gap-2">
-            <Flag className="h-4 w-4 text-[#2563EB]" aria-hidden="true" />
-            <h2 className="font-display text-base font-bold text-[#172554]">
+            <Flag className="h-4 w-4 text-[var(--accent-primary)]" aria-hidden="true" />
+            <h2 className="font-display text-base font-bold text-[var(--text-primary)]">
               Define Project Phase
             </h2>
           </div>
@@ -263,17 +282,19 @@ export default function StudentMilestonesPage() {
         {/* Project Phases & Feedback Thread List */}
         <section className="lg:col-span-8 space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="font-display text-lg font-bold text-[#172554]">
+            <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
               Project Phases ({filteredMilestones.length})
             </h2>
-            <div className="flex items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-100 p-1">
+            <div className="flex items-center gap-1 overflow-x-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
               {STATUS_FILTERS.map((f) => (
                 <button
                   key={f}
                   type="button"
                   onClick={() => setStatusFilter(f)}
-                  className={`min-h-[34px] rounded-md px-2.5 text-xs font-medium whitespace-nowrap cursor-pointer ${
-                    statusFilter === f ? 'bg-white text-[#172554] shadow-xs' : 'text-[#64748B]'
+                  className={`min-h-[34px] rounded-md px-2.5 text-xs font-medium whitespace-nowrap cursor-pointer transition-colors ${
+                    statusFilter === f
+                      ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-xs'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                   }`}
                 >
                   {f}
@@ -295,23 +316,29 @@ export default function StudentMilestonesPage() {
               {filteredMilestones.map((ms) => (
                 <article
                   key={ms.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4"
+                  className="spt-surface rounded-2xl p-5 space-y-4"
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <span className="inline-flex h-6 px-2 items-center rounded-md bg-[#172554] font-mono font-bold text-white tabular-nums">
+                        <span className="inline-flex h-6 px-2 items-center rounded-md bg-[var(--accent-primary)] font-mono font-bold text-white tabular-nums">
                           Phase {ms.phaseNumber}
                         </span>
-                        <span className="font-mono font-semibold text-[#2563EB] tabular-nums">
+                        <span className="font-mono font-semibold text-[var(--accent-primary)] tabular-nums">
                           Weight: {ms.weightPercent}%
                         </span>
-                        <span className="font-mono text-[#64748B] tabular-nums">
+                        <span
+                          className={`font-mono tabular-nums ${
+                            ms.isOverdue
+                              ? 'font-semibold text-red-700 dark:text-red-400'
+                              : 'text-[var(--text-muted)]'
+                          }`}
+                        >
                           Due {ms.dueDate}
                           {ms.isOverdue ? ' · Past due' : ''}
                         </span>
                       </div>
-                      <h3 className="font-display text-base sm:text-lg font-bold text-[#172554]">
+                      <h3 className="font-display text-base sm:text-lg font-bold text-[var(--text-primary)]">
                         {ms.title}
                       </h3>
                     </div>
@@ -319,23 +346,27 @@ export default function StudentMilestonesPage() {
                   </div>
 
                   {ms.description && (
-                    <p className="text-sm text-[#64748B] leading-relaxed">{ms.description}</p>
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                      {ms.description}
+                    </p>
                   )}
 
                   {/* Linked tasks completion */}
-                  <div className="space-y-1.5 rounded-xl border border-slate-200 bg-[#F8FAFC] p-3.5">
-                    <div className="flex items-center justify-between text-xs text-[#64748B] tabular-nums">
+                  <div className="space-y-1.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3.5">
+                    <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] tabular-nums">
                       <span>
                         {ms.totalTasks > 0
                           ? `${ms.doneTasks} of ${ms.totalTasks} linked tasks completed`
                           : 'No tasks linked to this phase yet'}
                       </span>
-                      <span className="font-mono font-bold text-[#172554]">{ms.pct}%</span>
+                      <span className="font-mono font-bold text-[var(--text-primary)]">
+                        {ms.pct}%
+                      </span>
                     </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--border-subtle)]">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${
-                          ms.status === 'Approved' ? 'bg-emerald-600' : 'bg-[#2563EB]'
+                          ms.status === 'Approved' ? 'bg-emerald-600' : 'bg-[var(--accent-primary)]'
                         }`}
                         style={{ width: `${ms.pct}%` }}
                       />
@@ -362,7 +393,7 @@ export default function StudentMilestonesPage() {
                             type="date"
                             value={editingDateVal}
                             onChange={(e) => setEditingDateVal(e.target.value)}
-                            className="min-h-[36px] rounded-lg border border-slate-300 px-2.5 text-xs text-[#172554]"
+                            className="min-h-[36px] rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 text-xs text-[var(--text-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
                           />
                           <Button
                             type="button"
@@ -388,7 +419,7 @@ export default function StudentMilestonesPage() {
                             setEditingDateId(ms.id);
                             setEditingDateVal(ms.dueDate);
                           }}
-                          className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-[#2563EB] hover:bg-blue-50 cursor-pointer"
+                          className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-[var(--accent-primary)] hover:bg-[var(--bg-elevated)] cursor-pointer"
                         >
                           <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
                           <span>Adjust due date</span>
@@ -398,9 +429,9 @@ export default function StudentMilestonesPage() {
                   )}
 
                   {/* Feedback thread */}
-                  <div className="border-t border-slate-100 pt-4 space-y-3">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-[#172554]">
-                      <MessageSquare className="h-3.5 w-3.5 text-[#2563EB]" aria-hidden="true" />
+                  <div className="border-t border-[var(--border-subtle)] pt-4 space-y-3">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-primary)]">
+                      <MessageSquare className="h-3.5 w-3.5 text-[var(--accent-primary)]" aria-hidden="true" />
                       <span>
                         Milestone Feedback &amp; Notes ({ms.feedbackEntries.length})
                       </span>
@@ -413,19 +444,19 @@ export default function StudentMilestonesPage() {
                             key={fb.id}
                             className={`rounded-xl border p-3.5 text-xs space-y-1 ${
                               fb.authorRole === 'supervisor'
-                                ? 'border-blue-200 bg-blue-50/50'
-                                : 'border-slate-200 bg-[#F8FAFC]'
+                                ? 'border-blue-500/30 bg-blue-500/10'
+                                : 'border-[var(--border-subtle)] bg-[var(--bg-elevated)]'
                             }`}
                           >
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <span className="font-semibold text-[#172554]">
+                              <span className="font-semibold text-[var(--text-primary)]">
                                 {fb.authorName} ({fb.authorRole === 'supervisor' ? 'Supervisor' : 'Student'})
                               </span>
-                              <span className="font-mono text-[11px] text-[#64748B] tabular-nums">
+                              <span className="font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
                                 {fb.createdAt}
                               </span>
                             </div>
-                            <p className="text-xs sm:text-sm text-[#172554] leading-relaxed">
+                            <p className="text-xs sm:text-sm text-[var(--text-primary)] leading-relaxed">
                               {fb.comment}
                             </p>
                           </div>
@@ -442,7 +473,7 @@ export default function StudentMilestonesPage() {
                         }
                         placeholder="Add a phase update or reply to supervisor feedback..."
                         aria-label={`Reply to ${ms.title}`}
-                        className="min-h-[42px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-base sm:text-xs text-[#172554] focus:border-[#2563EB] focus:outline-none"
+                        className="min-h-[42px] flex-1 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 text-base sm:text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:outline-none"
                       />
                       <Button
                         type="button"
@@ -464,3 +495,4 @@ export default function StudentMilestonesPage() {
     </PortalLayout>
   );
 }
+

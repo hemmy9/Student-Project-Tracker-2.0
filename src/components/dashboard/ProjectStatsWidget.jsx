@@ -1,6 +1,5 @@
 import { BarChart3, CheckCircle2, Clock, FileCheck2, MessageSquareText } from 'lucide-react';
-
-const TODAY_ISO = '2026-11-14';
+import { isPastDeadline } from '../../utils/dateHelper';
 
 export default function ProjectStatsWidget({
   mode = 'student',
@@ -27,7 +26,7 @@ export default function ProjectStatsWidget({
         value: `${avgProgress}%`,
         detail: `${onTrackCount} of ${totalStudents} students on track`,
         percent: avgProgress,
-        barColor: 'bg-[#2563EB]',
+        barColor: 'bg-[var(--accent-primary)]',
         Icon: BarChart3,
       },
       {
@@ -38,7 +37,7 @@ export default function ProjectStatsWidget({
           reviewQueue.length > 0
             ? Math.round(((reviewQueue.length - pendingDocs) / reviewQueue.length) * 100)
             : 100,
-        barColor: pendingDocs > 0 ? 'bg-amber-500' : 'bg-emerald-600',
+        barColor: pendingDocs > 0 ? 'bg-amber-500' : 'bg-emerald-600 dark:bg-emerald-500',
         Icon: FileCheck2,
       },
       {
@@ -46,7 +45,7 @@ export default function ProjectStatsWidget({
         value: String((officeHoursData.availabilitySlots || []).filter((s) => s.active).length),
         detail: `${completedOrConfirmedBookings} confirmed/completed bookings`,
         percent: Math.min(100, completedOrConfirmedBookings * 25 + 25),
-        barColor: 'bg-[#172554]',
+        barColor: 'bg-slate-800 dark:bg-slate-400',
         Icon: Clock,
       },
       {
@@ -63,7 +62,7 @@ export default function ProjectStatsWidget({
                   100
               )
             : 0,
-        barColor: 'bg-emerald-600',
+        barColor: 'bg-emerald-600 dark:bg-emerald-500',
         Icon: CheckCircle2,
       },
     ];
@@ -71,18 +70,18 @@ export default function ProjectStatsWidget({
     return (
       <section
         aria-label="Supervision project statistics"
-        className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4"
+        className="spt-surface rounded-2xl p-5 sm:p-6 space-y-4"
       >
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="font-display text-lg font-bold text-[#172554]">
+            <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
               Cohort &amp; Supervision Project Stats
             </h2>
-            <p className="text-xs text-[#64748B]">
+            <p className="text-xs text-[var(--text-muted)]">
               Aggregated progress velocity, review turnaround, and consultation capacity across your supervised cohort.
             </p>
           </div>
-          <span className="font-mono text-xs text-[#2563EB]">Live Computed Metrics</span>
+          <span className="font-mono text-xs text-[var(--accent-primary)]">Live Computed Metrics</span>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
@@ -91,22 +90,22 @@ export default function ProjectStatsWidget({
             return (
               <div
                 key={item.label}
-                className="lg:col-span-3 rounded-xl border border-slate-200 bg-[#F8FAFC] p-4 space-y-2.5"
+                className="lg:col-span-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 space-y-2.5"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-[#64748B]">{item.label}</span>
-                  <Icon className="h-4 w-4 text-[#2563EB] shrink-0" aria-hidden="true" />
+                  <span className="text-xs font-medium text-[var(--text-muted)]">{item.label}</span>
+                  <Icon className="h-4 w-4 text-[var(--accent-primary)] shrink-0" aria-hidden="true" />
                 </div>
-                <p className="font-display text-2xl font-bold text-[#172554] tabular-nums">
+                <p className="font-display text-2xl font-bold text-[var(--text-primary)] tabular-nums">
                   {item.value}
                 </p>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-subtle)]">
                   <div
                     className={`h-full rounded-full transition-all duration-300 ${item.barColor}`}
                     style={{ width: `${Math.min(100, Math.max(4, item.percent))}%` }}
                   />
                 </div>
-                <p className="text-[11px] text-[#64748B]">{item.detail}</p>
+                <p className="text-[11px] text-[var(--text-muted)]">{item.detail}</p>
               </div>
             );
           })}
@@ -141,7 +140,7 @@ export default function ProjectStatsWidget({
   );
 
   const completedTasks = tasks.filter((t) => t.completed).length;
-  const overdueTasks = tasks.filter((t) => !t.completed && t.dueDate && t.dueDate < TODAY_ISO).length;
+  const overdueTasks = tasks.filter((t) => !t.completed && isPastDeadline(t.dueDate)).length;
   const onTimeScore =
     tasks.length > 0 ? Math.round(((tasks.length - overdueTasks) / tasks.length) * 100) : 100;
 
@@ -167,7 +166,7 @@ export default function ProjectStatsWidget({
       value: `${weightedReadiness}%`,
       detail: `${milestones.filter((m) => m.status === 'Approved').length} of ${milestones.length} phases signed off`,
       percent: weightedReadiness,
-      barColor: 'bg-[#2563EB]',
+      barColor: 'bg-[var(--accent-primary)]',
       Icon: BarChart3,
     },
     {
@@ -175,7 +174,7 @@ export default function ProjectStatsWidget({
       value: `${onTimeScore}%`,
       detail: overdueTasks > 0 ? `${overdueTasks} overdue open task(s)` : `${completedTasks} tasks on schedule`,
       percent: onTimeScore,
-      barColor: overdueTasks > 0 ? 'bg-amber-500' : 'bg-emerald-600',
+      barColor: overdueTasks > 0 ? 'bg-amber-500' : 'bg-emerald-600 dark:bg-emerald-500',
       Icon: Clock,
     },
     {
@@ -183,7 +182,7 @@ export default function ProjectStatsWidget({
       value: `${docApprovalRate}%`,
       detail: `${submissions.length} versions · ${revisionDocs} revision cycle(s)`,
       percent: docApprovalRate,
-      barColor: revisionDocs > 0 ? 'bg-[#2563EB]' : 'bg-emerald-600',
+      barColor: revisionDocs > 0 ? 'bg-[var(--accent-primary)]' : 'bg-emerald-600 dark:bg-emerald-500',
       Icon: FileCheck2,
     },
     {
@@ -191,7 +190,7 @@ export default function ProjectStatsWidget({
       value: `${journalReviewRate}%`,
       detail: `${reviewedJournals}/${journals.length} journals reviewed · ${messages.length} msgs · ${upcomingMeetings} mtg(s)`,
       percent: journalReviewRate,
-      barColor: 'bg-[#172554]',
+      barColor: 'bg-slate-800 dark:bg-slate-400',
       Icon: MessageSquareText,
     },
   ];
@@ -199,17 +198,17 @@ export default function ProjectStatsWidget({
   return (
     <section
       aria-label="Project statistics"
-      className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4"
+      className="spt-surface rounded-2xl p-5 sm:p-6 space-y-4"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="font-display text-lg font-bold text-[#172554]">Project Stats</h2>
-          <p className="text-xs text-[#64748B]">
+          <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">Project Stats</h2>
+          <p className="text-xs text-[var(--text-muted)]">
             Real-time completion weightage, schedule adherence, document iteration rate, and supervision cadence.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-[#64748B] tabular-nums">
+        <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-[var(--text-muted)] tabular-nums">
           <span>
             High priority: {highTasks.filter((t) => t.completed).length}/{highTasks.length}
           </span>
@@ -228,22 +227,22 @@ export default function ProjectStatsWidget({
           return (
             <div
               key={stat.label}
-              className="sm:col-span-3 lg:col-span-3 rounded-xl border border-slate-200 bg-[#F8FAFC] p-4 space-y-2.5"
+              className="sm:col-span-3 lg:col-span-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 space-y-2.5"
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-[#64748B]">{stat.label}</span>
-                <Icon className="h-4 w-4 text-[#2563EB] shrink-0" aria-hidden="true" />
+                <span className="text-xs font-medium text-[var(--text-muted)]">{stat.label}</span>
+                <Icon className="h-4 w-4 text-[var(--accent-primary)] shrink-0" aria-hidden="true" />
               </div>
-              <p className="font-display text-2xl font-bold text-[#172554] tabular-nums">
+              <p className="font-display text-2xl font-bold text-[var(--text-primary)] tabular-nums">
                 {stat.value}
               </p>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--bg-subtle)]">
                 <div
                   className={`h-full rounded-full transition-all duration-300 ${stat.barColor}`}
                   style={{ width: `${Math.min(100, Math.max(4, stat.percent))}%` }}
                 />
               </div>
-              <p className="text-[11px] text-[#64748B] leading-snug">{stat.detail}</p>
+              <p className="text-[11px] text-[var(--text-muted)] leading-snug">{stat.detail}</p>
             </div>
           );
         })}
@@ -251,3 +250,4 @@ export default function ProjectStatsWidget({
     </section>
   );
 }
+

@@ -5,6 +5,7 @@ import ActivityFeedStream from '../../components/dashboard/ActivityFeedStream';
 import AiProjectCopilot from '../../components/dashboard/AiProjectCopilot';
 import { BreakdownDonut, HorizontalBarChart } from '../../components/dashboard/AnalyticsPanel';
 import DashboardSkeleton from '../../components/dashboard/DashboardSkeleton';
+import DeadlineRemindersBanner from '../../components/dashboard/DeadlineRemindersBanner';
 import OfficeHoursWidget from '../../components/dashboard/OfficeHoursWidget';
 import ProgressTrackerWidget from '../../components/dashboard/ProgressTrackerWidget';
 import ProjectStatsWidget from '../../components/dashboard/ProjectStatsWidget';
@@ -15,7 +16,12 @@ import StatusLabel from '../../components/dashboard/StatusLabel';
 import PortalLayout from '../../components/layout/PortalLayout';
 import EmptyState from '../../components/ui/EmptyState';
 import { WidgetErrorBoundary } from '../../components/ui/ErrorBoundary';
-import { useDemoAppState } from '../../context/DemoAppStateContext';
+import {
+  GRACE_INSTITUTION_NAME,
+  resolveInstitutionKey,
+  resolveWorkspaceInstitution,
+  useDemoAppState,
+} from '../../context/DemoAppStateContext';
 import { useDemoSession } from '../../context/DemoSessionContext';
 import { getPortalNavItems } from '../../utils/roleRouting';
 
@@ -27,49 +33,57 @@ const COHORT_SORTS = [
 ];
 
 export default function SupervisorDashboardPage() {
-  const { activeMembership } = useDemoSession();
+  const { activeMembership, session } = useDemoSession();
   const { state } = useDemoAppState();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [sortBy, setSortBy] = useState('progress_asc');
   const [loadingPreview, setLoadingPreview] = useState(false);
 
-  const institutionName = activeMembership?.institutionName || 'University of Westbridge';
-  const primaryProj = state.projectsByInstitution['University of Westbridge'];
+  const institutionName = resolveWorkspaceInstitution(activeMembership, session);
+  const projectKey = resolveInstitutionKey(state.projectsByInstitution, institutionName);
+  const primaryProj = projectKey ? state.projectsByInstitution[projectKey] : null;
+  const isGraceWorkspace = institutionName === GRACE_INSTITUTION_NAME;
 
   const assignedStudents = useMemo(() => {
-    const doneTasks = primaryProj.tasks.filter((t) => t.completed).length;
-    const progress =
-      primaryProj.tasks.length > 0
-        ? Math.round((doneTasks / primaryProj.tasks.length) * 100)
-        : 0;
-    const hasPendingReview = primaryProj.submissions.some((s) => s.status === 'Pending Review');
-    const primaryStudent = {
-      id: 'stu-1',
-      name: primaryProj.studentName,
-      studentCode: 'UWB-2026-0418',
-      programme: primaryProj.programme,
-      projectTitle: primaryProj.title,
-      progress,
-      lastJournal: primaryProj.journals[0]?.date || '2026-11-10',
-      attentionStatus: hasPendingReview ? 'Review Ready' : 'On Track',
-      pendingItem: hasPendingReview
-        ? 'Submitted chapter awaiting supervisor decision'
-        : 'Progressing on schedule',
-    };
-    return [primaryStudent, ...state.supervisorExtraStudents];
-  }, [primaryProj, state.supervisorExtraStudents]);
+    const list = [];
+    if (primaryProj) {
+      const doneTasks = primaryProj.tasks.filter((t) => t.completed).length;
+      const progress =
+        primaryProj.tasks.length > 0
+          ? Math.round((doneTasks / primaryProj.tasks.length) * 100)
+          : 0;
+      const hasPendingReview = primaryProj.submissions.some((s) => s.status === 'Pending Review');
+      list.push({
+        id: 'stu-1',
+        name: primaryProj.studentName,
+        studentCode: primaryProj.code || 'GP-CSC-2026-014',
+        programme: primaryProj.programme,
+        projectTitle: primaryProj.title,
+        progress,
+        lastJournal: primaryProj.journals[0]?.date || '—',
+        attentionStatus: hasPendingReview ? 'Review Ready' : 'On Track',
+        pendingItem: hasPendingReview
+          ? 'Submitted chapter awaiting supervisor decision'
+          : 'Progressing on schedule',
+      });
+    }
+    if (isGraceWorkspace) {
+      list.push(...state.supervisorExtraStudents);
+    }
+    return list;
+  }, [primaryProj, isGraceWorkspace, state.supervisorExtraStudents]);
 
   const reviewQueue = useMemo(() => {
-    const liveQueue = primaryProj.submissions.map((s) => ({
+    const liveQueue = (primaryProj?.submissions || []).map((s) => ({
       id: s.id,
       studentName: primaryProj.studentName,
       documentTitle: `${s.title} (${s.version})`,
       submittedAt: s.submittedAt,
       status: s.status,
     }));
-    return [...liveQueue, ...state.supervisorExtraSubmissions];
-  }, [primaryProj.studentName, primaryProj.submissions, state.supervisorExtraSubmissions]);
+    return isGraceWorkspace ? [...liveQueue, ...state.supervisorExtraSubmissions] : liveQueue;
+  }, [primaryProj, isGraceWorkspace, state.supervisorExtraSubmissions]);
 
   const pendingReviewsCount = reviewQueue.filter((r) => r.status === 'Pending Review').length;
   const studentsNeedingAttention = assignedStudents.filter(
@@ -99,7 +113,7 @@ export default function SupervisorDashboardPage() {
     {
       label: 'Assigned Students',
       value: String(assignedStudents.length),
-      hint: 'Active undergraduate & M.Sc. projects',
+      hint: 'Active academic projects in cohort',
     },
     {
       label: 'Pending Reviews',
@@ -113,7 +127,7 @@ export default function SupervisorDashboardPage() {
     },
     {
       label: 'Journal Entries',
-      value: String(primaryProj.journals.length),
+      value: String(primaryProj?.journals?.length || 0),
       hint: 'Logged for primary supervised project',
     },
   ];
@@ -139,7 +153,8 @@ export default function SupervisorDashboardPage() {
   const hasActiveCohortFilters =
     statusFilter !== 'All' || searchQuery.trim() !== '' || sortBy !== 'progress_asc';
 
-  const officeHoursData = state.officeHoursByInstitution?.[institutionName] || {
+  const officeKey = resolveInstitutionKey(state.officeHoursByInstitution, institutionName);
+  const officeHoursData = (officeKey && state.officeHoursByInstitution?.[officeKey]) || {
     availabilitySlots: [],
     bookings: [],
   };
@@ -155,14 +170,14 @@ export default function SupervisorDashboardPage() {
         lastJournal: s.lastJournal,
       })),
       pendingDocumentReviews: reviewQueue.filter((r) => r.status === 'Pending Review'),
-      primaryProjectMilestones: primaryProj.milestones.map((m) => ({
+      primaryProjectMilestones: (primaryProj?.milestones || []).map((m) => ({
         title: m.title,
         status: m.status,
         dueDate: m.dueDate,
       })),
       officeHourBookings: officeHoursData.bookings,
     }),
-    [institutionName, assignedStudents, reviewQueue, primaryProj.milestones, officeHoursData.bookings]
+    [institutionName, assignedStudents, reviewQueue, primaryProj, officeHoursData.bookings]
   );
 
   return (
@@ -171,7 +186,7 @@ export default function SupervisorDashboardPage() {
         <div className="lg:col-span-12">
           <Stage2Banner
             portalName="Supervisor Portal"
-            tenantLabel={institutionName}
+            tenantLabel={institutionName || 'Supervisor Workspace'}
             loadingPreview={loadingPreview}
             onToggleLoadingPreview={setLoadingPreview}
           />
@@ -184,12 +199,16 @@ export default function SupervisorDashboardPage() {
         ) : (
           <>
             <div className="lg:col-span-12 space-y-1">
-              <h1 className="font-display text-2xl font-bold text-[#172554]">
+              <h1 className="font-display text-2xl font-bold text-[var(--text-primary)]">
                 Supervision Overview
               </h1>
-              <p className="text-sm text-[#64748B]">
-                {institutionName} · {primaryProj.department}
+              <p className="text-sm text-[var(--text-muted)]">
+                {institutionName || 'Academic Tenant'} · {primaryProj?.department || 'Faculty Supervision'}
               </p>
+            </div>
+
+            <div className="lg:col-span-12">
+              <DeadlineRemindersBanner />
             </div>
 
             <section
@@ -219,11 +238,15 @@ export default function SupervisorDashboardPage() {
             <div className="lg:col-span-7">
               <WidgetErrorBoundary title="Milestones Progress temporarily unavailable">
                 <ProgressTrackerWidget
-                  title={`Milestones Progress — ${primaryProj.studentName}`}
+                  title={
+                    primaryProj
+                      ? `Milestones Progress — ${primaryProj.studentName}`
+                      : 'Milestones Progress'
+                  }
                   subtitle="Track student-defined phases, weighted progress, and supervisor sign-off status."
-                  milestones={primaryProj.milestones}
-                  tasks={primaryProj.tasks}
-                  nextDeadline={primaryProj.nextDeadline}
+                  milestones={primaryProj?.milestones || []}
+                  tasks={primaryProj?.tasks || []}
+                  nextDeadline={primaryProj?.nextDeadline || ''}
                   managePath="/supervisor/milestones"
                   manageLabel="Review & post milestone feedback"
                   tasksPath="/supervisor/reviews"
@@ -260,55 +283,63 @@ export default function SupervisorDashboardPage() {
             </section>
 
             {/* Priority Attention Queue */}
-            <section className="lg:col-span-12 rounded-2xl border border-red-200 bg-white p-5 sm:p-6 space-y-4">
+            <section className="lg:col-span-12 spt-surface rounded-2xl border-red-200 dark:border-red-900/60 p-5 sm:p-6 space-y-4">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-red-700">
+                <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
                   <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  <h2 className="font-display text-base font-bold text-[#172554]">
+                  <h2 className="font-display text-base font-bold text-[var(--text-primary)]">
                     Students Needing Attention ({studentsNeedingAttention.length})
                   </h2>
                 </div>
                 <Link
                   to="/supervisor/students"
-                  className="text-xs font-semibold text-[#2563EB] hover:underline"
+                  className="text-xs font-semibold text-[var(--accent-primary)] hover:underline"
                 >
                   Inspect cohort →
                 </Link>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                {studentsNeedingAttention.map((stu) => (
-                  <div
-                    key={stu.id}
-                    className="rounded-xl border border-slate-200 bg-[#F8FAFC] p-4 space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-bold text-[#172554]">{stu.name}</p>
-                      <span className="font-mono text-xs text-[#64748B] tabular-nums">
-                        {stu.progress}%
-                      </span>
+              {studentsNeedingAttention.length === 0 ? (
+                <p className="text-xs text-[var(--text-muted)]">
+                  No students are currently flagged for overdue journals or stalled deliverables.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {studentsNeedingAttention.map((stu) => (
+                    <div
+                      key={stu.id}
+                      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-bold text-[var(--text-primary)]">{stu.name}</p>
+                        <span className="font-mono text-xs text-[var(--text-muted)] tabular-nums">
+                          {stu.progress}%
+                        </span>
+                      </div>
+                      <p className="text-xs text-[var(--text-muted)]">{stu.projectTitle}</p>
+                      <p className="text-xs font-semibold text-red-700 dark:text-red-400 pt-1">
+                        {stu.pendingItem}
+                      </p>
                     </div>
-                    <p className="text-xs text-[#64748B]">{stu.projectTitle}</p>
-                    <p className="text-xs font-semibold text-red-700 pt-1">{stu.pendingItem}</p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {/* Assigned Students Cohort */}
-            <section className="lg:col-span-12 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-5">
+            <section className="lg:col-span-12 spt-surface rounded-2xl p-5 sm:p-6 space-y-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="font-display text-lg font-bold text-[#172554]">
+                  <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
                     Assigned Students &amp; Projects
                   </h2>
-                  <p className="text-xs text-[#64748B]">
+                  <p className="text-xs text-[var(--text-muted)]">
                     Monitor milestone progress, weekly check-ins, and review readiness.
                   </p>
                 </div>
                 <Link
                   to="/supervisor/students"
-                  className="text-xs font-semibold text-[#2563EB] hover:underline whitespace-nowrap"
+                  className="text-xs font-semibold text-[var(--accent-primary)] hover:underline whitespace-nowrap"
                 >
                   Open cohort workspace →
                 </Link>
@@ -345,20 +376,22 @@ export default function SupervisorDashboardPage() {
                 />
               ) : (
                 <>
-                  <div className="divide-y divide-slate-100 md:hidden">
+                  <div className="divide-y divide-[var(--border-subtle)] md:hidden">
                     {filteredStudents.map((stu) => (
                       <div key={stu.id} className="py-4 first:pt-0 last:pb-0 space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <p className="text-sm font-bold text-[#172554]">{stu.name}</p>
-                            <p className="font-mono text-xs text-[#64748B] tabular-nums">
+                            <p className="text-sm font-bold text-[var(--text-primary)]">{stu.name}</p>
+                            <p className="font-mono text-xs text-[var(--text-muted)] tabular-nums">
                               {stu.studentCode} · {stu.programme}
                             </p>
                           </div>
                           <StatusLabel status={stu.attentionStatus} />
                         </div>
-                        <p className="text-xs text-[#172554] leading-relaxed">{stu.projectTitle}</p>
-                        <div className="flex items-center justify-between text-xs text-[#64748B] tabular-nums">
+                        <p className="text-xs text-[var(--text-primary)] leading-relaxed">
+                          {stu.projectTitle}
+                        </p>
+                        <div className="flex items-center justify-between text-xs text-[var(--text-muted)] tabular-nums">
                           <span>Progress: {stu.progress}%</span>
                           <span>Last journal: {stu.lastJournal}</span>
                         </div>
@@ -369,7 +402,7 @@ export default function SupervisorDashboardPage() {
                   <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left text-sm">
                       <thead>
-                        <tr className="border-b border-slate-200 text-xs font-semibold text-[#64748B]">
+                        <tr className="border-b border-[var(--border-subtle)] text-xs font-semibold text-[var(--text-muted)]">
                           <th className="py-2.5 pr-4">Student</th>
                           <th className="py-2.5 px-4">Project</th>
                           <th className="py-2.5 px-4 text-right">Progress</th>
@@ -377,24 +410,24 @@ export default function SupervisorDashboardPage() {
                           <th className="py-2.5 pl-4 text-right">Status</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-[var(--border-subtle)]">
                         {filteredStudents.map((stu) => (
-                          <tr key={stu.id} className="hover:bg-slate-50/70">
+                          <tr key={stu.id} className="hover:bg-[var(--bg-elevated)]/60">
                             <td className="py-3 pr-4">
-                              <p className="font-semibold text-[#172554]">{stu.name}</p>
-                              <p className="font-mono text-xs text-[#64748B] tabular-nums">
+                              <p className="font-semibold text-[var(--text-primary)]">{stu.name}</p>
+                              <p className="font-mono text-xs text-[var(--text-muted)] tabular-nums">
                                 {stu.studentCode}
                               </p>
                             </td>
                             <td className="py-3 px-4 max-w-xs">
-                              <p className="text-xs font-medium text-[#172554] line-clamp-2">
+                              <p className="text-xs font-medium text-[var(--text-primary)] line-clamp-2">
                                 {stu.projectTitle}
                               </p>
                             </td>
-                            <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-[#172554] tabular-nums">
+                            <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-[var(--text-primary)] tabular-nums">
                               {stu.progress}%
                             </td>
-                            <td className="py-3 px-4 font-mono text-xs text-[#64748B] tabular-nums">
+                            <td className="py-3 px-4 font-mono text-xs text-[var(--text-muted)] tabular-nums">
                               {stu.lastJournal}
                             </td>
                             <td className="py-3 pl-4 text-right">
@@ -410,38 +443,44 @@ export default function SupervisorDashboardPage() {
             </section>
 
             {/* Document Review Queue */}
-            <section className="lg:col-span-12 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4">
+            <section className="lg:col-span-12 spt-surface rounded-2xl p-5 sm:p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <FileCheck2 className="h-4 w-4 text-[#2563EB]" aria-hidden="true" />
-                  <h2 className="font-display text-lg font-bold text-[#172554]">
+                  <FileCheck2 className="h-4 w-4 text-[var(--accent-primary)]" aria-hidden="true" />
+                  <h2 className="font-display text-lg font-bold text-[var(--text-primary)]">
                     Submitted Document Review Queue
                   </h2>
                 </div>
                 <Link
                   to="/supervisor/reviews"
-                  className="text-xs font-semibold text-[#2563EB] hover:underline"
+                  className="text-xs font-semibold text-[var(--accent-primary)] hover:underline"
                 >
                   Open review queue →
                 </Link>
               </div>
 
-              <div className="divide-y divide-slate-100">
-                {reviewQueue.slice(0, 4).map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="py-3.5 first:pt-0 last:pb-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-semibold text-[#172554]">{doc.documentTitle}</p>
-                      <p className="text-xs text-[#64748B] tabular-nums">
-                        Submitted by {doc.studentName} · {doc.submittedAt}
-                      </p>
+              {reviewQueue.length === 0 ? (
+                <p className="text-xs text-[var(--text-muted)]">No submitted documents awaiting review.</p>
+              ) : (
+                <div className="divide-y divide-[var(--border-subtle)]">
+                  {reviewQueue.slice(0, 4).map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="py-3.5 first:pt-0 last:pb-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">
+                          {doc.documentTitle}
+                        </p>
+                        <p className="text-xs text-[var(--text-muted)] tabular-nums">
+                          Submitted by {doc.studentName} · {doc.submittedAt}
+                        </p>
+                      </div>
+                      <StatusLabel status={doc.status} />
                     </div>
-                    <StatusLabel status={doc.status} />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <div className="lg:col-span-6">
@@ -470,3 +509,4 @@ export default function SupervisorDashboardPage() {
     </PortalLayout>
   );
 }
+
